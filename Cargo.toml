@@ -1,0 +1,25 @@
+[package]
+
+name = "backbonzo"
+version = "0.0.1"
+authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
+
+[lib]
+name = "backup"
+
+[dependencies.toml]
+toml = "~0.1.3"
+
+[dependencies.rusqlite]
+rust-sqlite = "*"
+
+[dependencies.flate2]
+flate2 = "~0.1.0"
+
+[dependencies]
+rust-crypto = "*"
+time = "*"
+
+[[bin]]
+
+name = "main"
