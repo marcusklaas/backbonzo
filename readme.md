@@ -20,13 +20,14 @@ Development on backbonzo has only just begun. It is certainly not functional yet
 priority todo list
 ------------------
 
+- [ ] sort the error handling mess
 - [ ] take parameters/ read from configuration file
 - [ ] seperate commands for initialization and ordinary backup
 - [ ] add timeout parameter
 - [ ] test correctness and reversibility of encryption
 - [ ] export index and config
 - [ ] implement decryption command (total, file) with timestamp
-
+- [ ] split file writing and encryption to different threads
 
 build
 -----
