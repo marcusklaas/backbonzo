@@ -4,24 +4,23 @@ extern crate rusqlite;
 extern crate "rust-crypto" as crypto;
 extern crate time;
 
-use rusqlite::{SqliteConnection, types};
+use rusqlite::SqliteConnection;
 use std::io::IoResult;
 use std::io::fs::{readdir, walk_dir, File, PathExtensions};
 use std::path::posix::Path;
 
+use crypto::{aes, buffer, symmetriccipher};
 use crypto::digest::Digest;
-use crypto::aes;
-use crypto::buffer;
 use crypto::buffer::{WriteBuffer, ReadBuffer};
-use crypto::symmetriccipher;
-use crypto::blockmodes::{NoPadding, PkcsPadding};
+use crypto::blockmodes::PkcsPadding;
 
 static DATABASE_FILE: &'static str = "index.db3";
 static BLOCK_SIZE: uint = 1024 * 1024;
 static TEST_KEY: &'static str = "testkey123";
+static TEMP_INPUT_DIRECTORY: &'static str = ".";
 static TEMP_OUTPUT_DIRECTORY: &'static str = "/tmp/";
 
-/* TODO: check out try! macro. may be useful for this project */
+/* TODO: there should be a type Result<T, String> because we use this all the time. using String instead of &'static str allows to return dynamic error messages */
 
 struct Blocks<'a> {
     file: File,
@@ -58,6 +57,7 @@ enum BlockExportResult {
     New(uint)
 }
 
+// CONSIDER: if we make this an Option<i64>, we won't have to cast when inserting/selecting to database
 enum Directory {
     Root,
     Child(uint)
@@ -82,15 +82,37 @@ pub fn init() -> Result<(), &'static str> {
 }
 
 fn populate_database(connection: &SqliteConnection) -> Result<(), &'static str> {
-    let working_dir = Path::new(".");
+    let working_dir = Path::new(TEMP_INPUT_DIRECTORY);
     
-    let path_list = match walk_dir(&working_dir) {
-        Ok(list) => list,
-        Err(..)  => return Err("Couldn't scan filesystem")
+    export_directory(connection, &working_dir, Directory::Root)
+}
+
+fn export_directory(connection: &SqliteConnection, path: &Path, directory: Directory) -> Result<(), &'static str> {
+    let content_list = match readdir(path) {
+        Ok(content) => content,
+        Err(..)     => return Err("Could not read directory!")
     };
     
-    for path in path_list.filter(|path| path.is_file()) {        
-        export_file(connection, &path);
+    let (directory_list, file_list) = content_list.partition(|path| path.is_dir());
+    
+    for file_path in file_list.iter() {
+        try!(export_file(connection, directory, file_path));
+    }
+    
+    for directory_path in directory_list.iter() {
+        let relative_path = match directory_path.path_relative_from(path) {
+            None    => return Err("... no words"),
+            Some(p) => p
+        };
+    
+        let name = match relative_path.as_str() {
+            None    => return Err("Cannot express directory name in UTF8"),
+            Some(s) => s
+        };
+        
+        let child_directory = try!(get_directory_id(connection, directory, name));
+    
+        try!(export_directory(connection, directory_path, child_directory));
     }
 
     Ok(())
@@ -130,7 +152,7 @@ fn file_known(connection: &SqliteConnection, path: &Path) -> Result<(bool, Strin
     Ok((known, hash))
 }
 
-fn export_file(connection: &SqliteConnection, path: &Path) -> Result<(), &'static str> {
+fn export_file(connection: &SqliteConnection, directory: Directory, path: &Path) -> Result<(), &'static str> {
     let hash = match file_known(connection, path) {
         Ok((true, _))     => return Ok(()),
         Err(e)            => return Err(e),
@@ -141,7 +163,6 @@ fn export_file(connection: &SqliteConnection, path: &Path) -> Result<(), &'stati
         Some(blocks) => blocks,
         None         => return Err("Couldn't read file")
     };
-    
     
     /* FIXME: this next block should be done functionally */
     let mut block_id_list = Vec::new();
@@ -157,7 +178,7 @@ fn export_file(connection: &SqliteConnection, path: &Path) -> Result<(), &'stati
         }
     }
     
-    if !index_persist_file(connection, path, hash.as_slice(), block_id_list.as_slice()) {
+    if !index_persist_file(connection, directory, path, hash.as_slice(), block_id_list.as_slice()) {
         println!("Failed persisting file to database");
     }
     
@@ -165,19 +186,13 @@ fn export_file(connection: &SqliteConnection, path: &Path) -> Result<(), &'stati
 }
 
 // FIXME: should return Result<(), &'static str> so we can more info what potentially went wrong
-fn index_persist_file(connection: &SqliteConnection, path: &Path, hash: &str, block_id_list: &[uint]) -> bool {
+fn index_persist_file(connection: &SqliteConnection, directory: Directory, path: &Path, hash: &str, block_id_list: &[uint]) -> bool {
     let filename_bytes = match path.filename() {
         None        => return false,
         Some(bytes) => bytes
     };
 
     let filename: String = String::from_utf8_lossy(filename_bytes).into_owned();
-
-    // FIXME: this will probably change
-    //let directory_id = match get_directory_id(path) {
-    //    None     => return false,
-    //    Some(id) => id
-    //};    
 
     let transaction = match connection.transaction() {
         Ok(tx) => tx,
@@ -205,8 +220,12 @@ fn index_persist_file(connection: &SqliteConnection, path: &Path, hash: &str, bl
     
     let alias_query = "INSERT INTO alias (directory_id, file_id, name, timestamp) VALUES ($1, $2, $3, $4);";
     let timestamp = time::get_time().sec;
+    let directory_id: Option<i64> = match directory {
+        Directory::Root      => None,
+        Directory::Child(id) => Some(id as i64)
+    };
     
-    match connection.execute(alias_query, &[&types::Null, &(file_id as i64), &filename, &(timestamp as i64)]) {
+    match connection.execute(alias_query, &[&directory_id, &(file_id as i64), &filename, &(timestamp as i64)]) {
         Err(e) => return false,
         Ok(..) => ()
     }
@@ -214,19 +233,27 @@ fn index_persist_file(connection: &SqliteConnection, path: &Path, hash: &str, bl
     transaction.commit().is_ok()
 }
 
-// FIXME: we probably shouldn't figure out directory for every single file.
-// instead, keep track of directory when walking the filesystem and pass on the
-// id of the working directory to fn_export_file
-fn get_directory_id(path: &Path) -> Option<Directory> {
-    let mut copy: Path = path.clone();
+fn get_directory_id(connection: &SqliteConnection, parent: Directory, name: &str) -> Result<Directory, &'static str> {
+    let parent_id: Option<i64> = match parent {
+        Directory::Root      => None,
+        Directory::Child(id) => Some(id as i64)
+    };
+
+    // TODO: escape name!
+    let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
+    let directory_id: Option<i64> = connection.query_row(select_query, &[&name, &parent_id], |row| row.get(0));
     
-    if !copy.pop() {
-        return Some(Directory::Root);
+    match directory_id {
+        Some(id) => return Ok(Directory::Child(id as uint)),
+        None     => ()
     }
     
-    //TODO: implement
+    let insert_query = "INSERT INTO directory (parent_id, name) VALUES ($1, $2);";
     
-    None
+    match connection.execute(insert_query, &[&parent_id, &name]) {
+        Ok(..) => Ok(Directory::Child(connection.last_insert_rowid() as uint)),
+        Err(_) => Err("Failed persisting new directory to database")
+    }
 }
 
 fn hash_block(block: &[u8]) -> String {
@@ -319,10 +346,7 @@ fn encrypt_block(block: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn setup_database() -> Result<SqliteConnection, &'static str> {
-    let connection = match create_database() {
-        Ok(conn) => conn,
-        Err(e)   => return Err(e)
-    };
+    let connection = try!(create_database());
 
     if ! create_directory_table(&connection) {
         return Err("Couldn't create directory table")

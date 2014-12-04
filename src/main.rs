@@ -1,7 +1,7 @@
-extern crate backup;
+extern crate backbonzo;
 
 fn main() {
-    match backup::init() {
+    match backbonzo::init() {
         Ok(..)   => println!("Done!"),
         Err(msg) => println!("Failed: {}.", msg)
     }

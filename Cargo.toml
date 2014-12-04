@@ -5,16 +5,16 @@ version = "0.0.1"
 authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 
 [lib]
-name = "backup"
+name = "backbonzo"
 
 [dependencies.toml]
-toml = "~0.1.3"
+toml = "*"
 
 [dependencies.rusqlite]
 rust-sqlite = "*"
 
 [dependencies.flate2]
-flate2 = "~0.1.0"
+flate2 = "*"
 
 [dependencies]
 rust-crypto = "*"
@@ -22,4 +22,4 @@ time = "*"
 
 [[bin]]
 
-name = "main"
+name = "backbonzo"
