@@ -17,6 +17,18 @@ current state
 
 Development on backbonzo has only just begun. It is certainly not functional yet. At the moment it scans the working directory for new and changed files and outputs encrypted blocks to `/tmp`. There is no way to recover a backup at this time.
 
+priority todo list
+------------------
+
+- [ ] sort the error handling mess
+- [ ] take parameters/ read from configuration file
+- [ ] seperate commands for initialization and ordinary backup
+- [ ] add timeout parameter
+- [ ] test correctness and reversibility of encryption
+- [ ] export index and config
+- [ ] implement decryption command (total, file) with timestamp
+- [ ] split file writing and encryption to different threads
+
 build
 -----
 
