@@ -1,11 +1,13 @@
 #![feature(slicing_syntax)]
 
 extern crate rusqlite;
+extern crate "rust-crypto" as rust_crypto;
 
-use std::io::IoResult;
+use std::io::{IoError, IoResult};
 use std::io::fs::{readdir, walk_dir, File, PathExtensions};
 use std::path::posix::Path;
 use rusqlite::{SqliteConnection, SqliteError};
+use rust_crypto::symmetriccipher::SymmetricCipherError;
 
 mod database;
 mod crypto;
@@ -17,12 +19,14 @@ static BLOCK_SIZE: uint = 1024 * 1024;
 
 /* TODO: there should be a different type Result<T, SomeEnum> because we use this all the time. using String instead of &'static str allows to return dynamic error messages */
 
-enum BonzoError {
-    DatabaseError(SqliteError),
-    IoError
+pub enum BonzoError {
+    Database(SqliteError),
+    Io(IoError),
+    Crypto(SymmetricCipherError),
+    Other(String)
 }
 
-type BonzoResult<T> = Result<T, BonzoError>;
+pub type BonzoResult<T> = Result<T, BonzoError>;
 
 struct Blocks<'a> {
     file: File,
@@ -30,13 +34,10 @@ struct Blocks<'a> {
 }
 
 impl<'a> Blocks<'a> {
-    pub fn from_path(path: &Path, block_size: uint) -> Option<Blocks> {
-        let file = match File::open(path) {
-            Ok(f)   => f,
-            Err(..) => return None
-        };
+    pub fn from_path(path: &Path, block_size: uint) -> IoResult<Blocks> {
+        let file = try!(File::open(path));
         
-        Some(Blocks {
+        Ok(Blocks {
             file: file,
             buffer: Vec::from_elem(block_size, 0).into_boxed_slice()
         })
@@ -45,11 +46,7 @@ impl<'a> Blocks<'a> {
     pub fn next(&'a mut self) -> Option<&'a [u8]> {
         match self.file.read(&mut *self.buffer) {
             Err(..)   => None,
-            Ok(bytes) => {
-                let slice: &'a [u8] = self.buffer[0..bytes];
-            
-                Some(slice)
-            }
+            Ok(bytes) => Some(self.buffer[0..bytes])
         }
     }
 }
@@ -65,38 +62,42 @@ enum Directory {
     Child(uint)
 }
 
-pub fn init() -> Result<(), &'static str> {
+fn io_error_to_bonzo(err: IoError) -> BonzoError {
+    BonzoError::Io(err)
+}
+
+fn database_error_to_bonzo(err: SqliteError) -> BonzoError {
+    BonzoError::Database(err)
+}
+
+fn crypto_error_to_bonzo(err: SymmetricCipherError) -> BonzoError {
+    BonzoError::Crypto(err)
+}
+
+pub fn init() -> BonzoResult<()> {
     println!("Setting up database..");
     
     let database_path = Path::new(DATABASE_FILE);
     
-    let connection = match database::setup(&Path::new(DATABASE_FILE)) {
-        Ok(conn) => conn,
-        Err(e)   => return Err(e)
-    };
+    let filename = try!(database_path.as_str().ok_or(BonzoError::Other("Couldn't convert database path to string".to_string()))); 
     
-    //let connection = match SqliteConnection::open(DATABASE_FILE) {
-    //    Ok(conn) => conn,
-    //    Err(_)   => return Err("Couldn't create database")
-    //};
+    let connection = try!(database::create(filename).map_err(database_error_to_bonzo));
+    
+    try!(database::setup(&connection).map_err(database_error_to_bonzo));
     
     println!("Populating database..");
     
     populate_database(&connection)
 }
 
-fn populate_database(connection: &SqliteConnection) -> Result<(), &'static str> {
+fn populate_database(connection: &SqliteConnection) -> BonzoResult<()> {
     let working_dir = Path::new(TEMP_INPUT_DIRECTORY);
     
     export_directory(connection, &working_dir, Directory::Root)
 }
 
-fn export_directory(connection: &SqliteConnection, path: &Path, directory: Directory) -> Result<(), &'static str> {
-    let content_list = match readdir(path) {
-        Ok(content) => content,
-        Err(..)     => return Err("Could not read directory!")
-    };
-    
+fn export_directory(connection: &SqliteConnection, path: &Path, directory: Directory) -> BonzoResult<()> {
+    let content_list = try!(readdir(path).map_err(io_error_to_bonzo));
     let (directory_list, file_list) = content_list.partition(|path| path.is_dir());
     
     for file_path in file_list.iter() {
@@ -104,17 +105,11 @@ fn export_directory(connection: &SqliteConnection, path: &Path, directory: Direc
     }
     
     for directory_path in directory_list.iter() {
-        let relative_path = match directory_path.path_relative_from(path) {
-            None    => return Err("... no words"),
-            Some(p) => p
-        };
+        let relative_path = try!(directory_path.path_relative_from(path).ok_or(BonzoError::Other("... no words".to_string())));
     
-        let name = match relative_path.as_str() {
-            None    => return Err("Cannot express directory name in UTF8"),
-            Some(s) => s
-        };
+        let name = try!(relative_path.as_str().ok_or(BonzoError::Other("Cannot express directory name in UTF8".to_string())));
         
-        let child_directory = try!(database::get_directory_id(connection, directory, name));
+        let child_directory = try!(database::get_directory_id(connection, directory, name).map_err(database_error_to_bonzo));
     
         try!(export_directory(connection, directory_path, child_directory));
     }
@@ -122,17 +117,14 @@ fn export_directory(connection: &SqliteConnection, path: &Path, directory: Direc
     Ok(())
 }
 
-fn export_file(connection: &SqliteConnection, directory: Directory, path: &Path) -> Result<(), &'static str> {
-    let hash = match database::file_known(connection, path) {
-        Ok((true, _))     => return Ok(()),
-        Err(e)            => return Err(e),
-        Ok((false, hash)) => hash
-    };
+fn export_file(connection: &SqliteConnection, directory: Directory, path: &Path) -> BonzoResult<()> {
+    let hash: String = try!(crypto::hash_file(path).map_err(io_error_to_bonzo));
     
-    let mut blocks = match Blocks::from_path(path, BLOCK_SIZE) {
-        Some(blocks) => blocks,
-        None         => return Err("Couldn't read file")
-    };
+    if database::file_known(connection, hash.as_slice()) {
+        return Ok(());
+    }
+    
+    let mut blocks = try!(Blocks::from_path(path, BLOCK_SIZE).map_err(io_error_to_bonzo));
     
     /* FIXME: this next block should be done functionally */
     let mut block_id_list = Vec::new();
@@ -148,47 +140,42 @@ fn export_file(connection: &SqliteConnection, directory: Directory, path: &Path)
         }
     }
     
-    if !database::persist_file(connection, directory, path, hash.as_slice(), block_id_list.as_slice()) {
-        println!("Failed persisting file to database");
-    }
+    let filename_bytes = try!(path.filename().ok_or(BonzoError::Other("Could not convert path to string".to_string())));
+
+    let filename: String = String::from_utf8_lossy(filename_bytes).into_owned();
     
-    Ok(())
+    database::persist_file(
+        connection,
+        directory,
+        filename.as_slice(),
+        hash.as_slice(),
+        block_id_list.as_slice()
+    ).map_err(database_error_to_bonzo)
 }
 
-fn export_block(connection: &SqliteConnection, block: &[u8]) -> Result<BlockExportResult, &'static str> {
+fn export_block(connection: &SqliteConnection, block: &[u8]) -> BonzoResult<BlockExportResult> {
     let hash = crypto::hash_block(block);
 
     if database::block_known(connection, hash.as_slice()) {
         return Ok(BlockExportResult::Known);
     }
     
-    let bytes = match crypto::encrypt_block(block) {
-        Some(vector) => vector,
-        None         => return Err("Failed encrypting block")
-    };
+    let bytes: Vec<u8> = try!(crypto::encrypt_block(block).map_err(crypto_error_to_bonzo));
     
-    match write_block(hash.as_slice(), bytes.as_slice()) {
-        Err(_) => return Err("Failed writing block to disk"),
-        Ok(..) => ()
-    }
+    try!(write_block(hash.as_slice(), bytes.as_slice()).map_err(io_error_to_bonzo));
     
-    match database::persist_block(connection, hash.as_slice()) {
-        None     => Err("Failed persisting block to database"),
-        Some(id) => Ok(BlockExportResult::New(id))
-    }
+    database::persist_block(connection, hash.as_slice())
+        .map(|id| BlockExportResult::New(id))
+        .map_err(database_error_to_bonzo)
 }
 
 fn write_block(hash: &str, bytes: &[u8]) -> IoResult<()> {
     let mut path = Path::new(TEMP_OUTPUT_DIRECTORY);
     path.push(hash);
 
-    let mut file = match File::create(&path) {
-        Ok(f)  => f,
-        Err(e) => return Err(e)
-    };
+    let mut file = try!(File::create(&path));
     
-    match file.write(bytes) {
-        Ok(..) => file.fsync(),
-        Err(e) => Err(e)
-    }
+    try!(file.write(bytes));
+    
+    file.fsync()
 }

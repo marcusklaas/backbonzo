@@ -1,22 +1,18 @@
-extern crate "rust-crypto" as rust_crypto;
-
-use self::rust_crypto::{aes, buffer, symmetriccipher};
-use self::rust_crypto::digest::Digest;
-use self::rust_crypto::buffer::{WriteBuffer, ReadBuffer};
-use self::rust_crypto::blockmodes::PkcsPadding;
-use self::rust_crypto::sha2::Sha256;
+use super::rust_crypto::{aes, buffer, symmetriccipher};
+use super::rust_crypto::digest::Digest;
+use super::rust_crypto::buffer::{WriteBuffer, ReadBuffer};
+use super::rust_crypto::blockmodes::PkcsPadding;
+use super::rust_crypto::sha2::Sha256;
+use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use super::Blocks;
+use std::io::IoResult;
 
 static TEST_KEY: &'static str = "testkey123";
 
-pub fn hash_file(path: &Path) -> Result<String, &'static str> {
+pub fn hash_file(path: &Path) -> IoResult<String> {
     let mut hasher = Sha256::new();
-    
-    let mut blocks = match Blocks::from_path(path, 1024) {
-        Some(blocks) => blocks,
-        None         => return Err("Couldn't read file")
-    };
+    let mut blocks = try!(Blocks::from_path(path, 1024));
     
     loop {
         match blocks.next() {
@@ -36,7 +32,7 @@ pub fn hash_block(block: &[u8]) -> String {
     hasher.result_str()
 }
 
-pub fn encrypt_block(block: &[u8]) -> Option<Vec<u8>> {
+pub fn encrypt_block(block: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     let mut encryptor: Box<symmetriccipher::Encryptor> = aes::cbc_encryptor(
         aes::KeySize::KeySize256,
         TEST_KEY.as_bytes(),
@@ -50,13 +46,9 @@ pub fn encrypt_block(block: &[u8]) -> Option<Vec<u8>> {
     let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
     
     while !read_buffer.is_empty() {
-        match encryptor.encrypt(&mut read_buffer, &mut write_buffer, true) {
-            Err(_) => return None,
-            Ok(..) => ()
-        }
-        
+        try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true));        
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
     }
     
-    Some(final_result)
+    Ok(final_result)
 }
