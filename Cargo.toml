@@ -19,6 +19,8 @@ flate2 = "*"
 [dependencies]
 rust-crypto = "*"
 time = "*"
+docopt = "*"
+docopt_macros = "*"
 
 [[bin]]
 

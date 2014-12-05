@@ -4,7 +4,7 @@ extern crate rusqlite;
 extern crate "rust-crypto" as rust_crypto;
 
 use std::io::{IoError, IoResult};
-use std::io::fs::{readdir, walk_dir, File, PathExtensions};
+use std::io::fs::{readdir, File, PathExtensions};
 use std::path::posix::Path;
 use rusqlite::{SqliteConnection, SqliteError};
 use rust_crypto::symmetriccipher::SymmetricCipherError;
@@ -12,12 +12,8 @@ use rust_crypto::symmetriccipher::SymmetricCipherError;
 mod database;
 mod crypto;
 
-static DATABASE_FILE: &'static str = "index.db3";
-static TEMP_INPUT_DIRECTORY: &'static str = ".";
 static TEMP_OUTPUT_DIRECTORY: &'static str = "/tmp/";
 static BLOCK_SIZE: uint = 1024 * 1024;
-
-/* TODO: there should be a different type Result<T, SomeEnum> because we use this all the time. using String instead of &'static str allows to return dynamic error messages */
 
 pub enum BonzoError {
     Database(SqliteError),
@@ -74,26 +70,29 @@ fn crypto_error_to_bonzo(err: SymmetricCipherError) -> BonzoError {
     BonzoError::Crypto(err)
 }
 
-pub fn init() -> BonzoResult<()> {
-    println!("Setting up database..");
+/// Start backup from scratch 
+pub fn init(database_path: &Path) -> BonzoResult<()> {
+    if database_path.exists() {
+        return Err(BonzoError::Other(format!("Database already exists"))); 
+    }
     
-    let database_path = Path::new(DATABASE_FILE);
+    let connection = try!(open_connection(database_path));
     
-    let filename = try!(database_path.as_str().ok_or(BonzoError::Other("Couldn't convert database path to string".to_string()))); 
-    
-    let connection = try!(database::create(filename).map_err(database_error_to_bonzo));
-    
-    try!(database::setup(&connection).map_err(database_error_to_bonzo));
-    
-    println!("Populating database..");
-    
-    populate_database(&connection)
+    database::setup(&connection).map_err(database_error_to_bonzo)
 }
 
-fn populate_database(connection: &SqliteConnection) -> BonzoResult<()> {
-    let working_dir = Path::new(TEMP_INPUT_DIRECTORY);
+/// Update previous backup
+pub fn update(path: &Path, database_path: &Path) -> BonzoResult<()> {
+    let connection = try!(open_connection(database_path));
     
-    export_directory(connection, &working_dir, Directory::Root)
+    export_directory(&connection, path, Directory::Root)
+}
+
+fn open_connection(path: &Path) -> BonzoResult<SqliteConnection> {
+    let error = BonzoError::Other(format!("Couldn't convert database path to string"));
+    let filename = try!(path.as_str().ok_or(error)); 
+
+    SqliteConnection::open(filename).map_err(database_error_to_bonzo)
 }
 
 fn export_directory(connection: &SqliteConnection, path: &Path, directory: Directory) -> BonzoResult<()> {

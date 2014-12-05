@@ -1,8 +1,7 @@
 extern crate time;
 
-use super::rusqlite::{SqliteResult, SqliteError, SqliteConnection};
-use super::{BonzoError, Directory};
-use super::crypto;
+use super::rusqlite::{SqliteResult, SqliteConnection};
+use super::Directory;
 
 pub fn persist_file(connection: &SqliteConnection, directory: Directory, filename: &str, hash: &str, block_id_list: &[uint]) -> SqliteResult<()> {
     let transaction = try!(connection.transaction());
@@ -126,23 +125,4 @@ fn create_file_block_table(connection: &SqliteConnection) -> SqliteResult<uint> 
         FOREIGN KEY(file_id) REFERENCES file(id),
         FOREIGN KEY(block_id) REFERENCES block(id)
     );", &[])
-}
-
-pub fn create(filename: &str) -> SqliteResult<SqliteConnection> {
-    //let working_directory = database_path.clone();
-    
-    //if !working_directory.pop() {
-    //    return Err("Received incorrect database location");
-    //}
-    
-    //let file_list = match readdir(&working_dir) {
-    //    Ok(list) => list,
-    //    Err(_)   => return Err("Failed reading directory")
-    //};
-    
-    //if file_list.into_iter().find(|path| *path == database_path).is_some() {
-    //    return Err("Database already exists");
-    //}
-    
-    SqliteConnection::open(filename)
 }
