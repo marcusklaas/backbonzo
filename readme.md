@@ -20,7 +20,7 @@ Development on backbonzo has only just begun. It is certainly not functional yet
 priority todo list
 ------------------
 
-- [ ] sort the error handling mess
+- [x] sort the error handling mess
 - [ ] take parameters/ read from configuration file
 - [ ] seperate commands for initialization and ordinary backup
 - [ ] add timeout parameter
