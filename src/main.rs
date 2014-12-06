@@ -27,7 +27,6 @@ static TEMP_INPUT_DIRECTORY: &'static str = ".";
 
 fn main() {
     let args: Args = Args::docopt().decode().unwrap_or_else(|e| e.exit());
-    println!("{}", args);
     
     let path = Path::new(TEMP_INPUT_DIRECTORY);
     let mut database_path = path.clone();
