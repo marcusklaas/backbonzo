@@ -42,13 +42,15 @@ pub fn file_known(connection: &SqliteConnection, hash: &str) -> bool {
     )
 }
 
-pub fn block_known(connection: &SqliteConnection, hash: &str) -> bool {
-    connection.query_row(
-        "SELECT COUNT(id) FROM block
+pub fn block_id_from_hash(connection: &SqliteConnection, hash: &str) -> Option<uint> {
+    let result: Option<i64> = connection.query_row(
+        "SELECT SUM(id) FROM block
         WHERE hash = $1;",
         &[&hash],
-        |row| row.get::<i64>(0) > 0
-    )
+        |row| row.get(0)
+    );
+
+    result.map(|signed| signed as uint)
 }
 
 pub fn get_directory_id(connection: &SqliteConnection, parent: Directory, name: &str) -> SqliteResult<Directory> {

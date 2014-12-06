@@ -47,11 +47,6 @@ impl<'a> Blocks<'a> {
     }
 }
 
-enum BlockExportResult {
-    Known,
-    New(uint)
-}
-
 // CONSIDER: if we make this an Option<i64>, we won't have to cast when inserting/selecting to database
 enum Directory {
     Root,
@@ -149,20 +144,14 @@ fn export_file(connection: &SqliteConnection, directory: Directory, path: &Path)
     
     loop {
         match blocks.next() {
-            Some(slice) => match export_block(connection, slice) {
-                Err(e)                         => return Err(e),
-                Ok(BlockExportResult::New(id)) => block_id_list.push(id),
-                Ok(BlockExportResult::Known)   => ()
-            },
+            Some(slice) => block_id_list.push(try!(export_block(connection, slice))),
             None        => break
         }
     }
     
     let filename_bytes = try!(path.filename().ok_or(BonzoError::Other("Could not convert path to string".to_string())));
-
-    let filename: String = String::from_utf8_lossy(filename_bytes).into_owned();
+    let filename = String::from_utf8_lossy(filename_bytes).into_owned();
     
-    // FIXME: this is critically bugged! if some blocks are already known for a file, they won't be included in its block list!
     database::persist_file(
         connection,
         directory,
@@ -172,11 +161,12 @@ fn export_file(connection: &SqliteConnection, directory: Directory, path: &Path)
     ).map_err(database_to_bonzo)
 }
 
-fn export_block(connection: &SqliteConnection, block: &[u8]) -> BonzoResult<BlockExportResult> {
+fn export_block(connection: &SqliteConnection, block: &[u8]) -> BonzoResult<uint> {
     let hash = crypto::hash_block(block);
 
-    if database::block_known(connection, hash.as_slice()) {
-        return Ok(BlockExportResult::Known);
+    match database::block_id_from_hash(connection, hash.as_slice()) {
+		Some(id) => return Ok(id),
+		None     => () 
     }
     
     let bytes: Vec<u8> = try!(crypto::encrypt_block(block).map_err(crypto_to_bonzo));
@@ -185,7 +175,6 @@ fn export_block(connection: &SqliteConnection, block: &[u8]) -> BonzoResult<Bloc
     try!(write_to_disk(&path, bytes.as_slice()).map_err(io_to_bonzo));
     
     database::persist_block(connection, hash.as_slice())
-        .map(|id| BlockExportResult::New(id))
         .map_err(database_to_bonzo)
 }
 
