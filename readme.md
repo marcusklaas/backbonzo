@@ -1,6 +1,8 @@
 backbonzo
 =========
 
+[![Build Status](https://travis-ci.org/marcusklaas/backbonzo.svg?branch=master)](https://travis-ci.org/marcusklaas/backbonzo)
+
 backbonzo will be a backup management tool written in Rust. It aims to
 
 * be secure. To this end, it uses the AES256 cypher to encrypt the data and index before copying them to their destination.
