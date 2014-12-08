@@ -36,7 +36,7 @@ pub fn encrypt_block(block: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     let mut encryptor: Box<symmetriccipher::Encryptor> = aes::cbc_encryptor(
         aes::KeySize::KeySize256,
         TEST_KEY.as_bytes(),
-        &[],
+        &[0, ..16],
         PkcsPadding
     );
     
@@ -58,7 +58,7 @@ pub fn decrypt_block(block: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     let mut decryptor: Box<symmetriccipher::Decryptor> = aes::cbc_decryptor(
         aes::KeySize::KeySize256,
         TEST_KEY.as_bytes(),
-        &[],
+        &[0, ..16],
         PkcsPadding
     );
     
@@ -73,4 +73,22 @@ pub fn decrypt_block(block: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     }
     
     Ok(final_result)
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn aes_encryption_decryption() {
+        let block = [13u8, ..(1024*52)];
+
+        let encrypted_bytes: Vec<u8> = super::encrypt_block(&block).ok().unwrap();
+
+        let decrypted_bytes = super::decrypt_block(encrypted_bytes.as_slice()).ok().unwrap();
+        
+        assert_eq!(block.len(), decrypted_bytes.len());
+
+        for (x, y) in block.iter().zip(decrypted_bytes.as_slice().iter()) {
+            assert_eq!(*x, *y);
+        }
+    }
 }

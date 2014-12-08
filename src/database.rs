@@ -1,6 +1,6 @@
 extern crate time;
 
-use super::rusqlite::{SqliteResult, SqliteConnection, SqliteRows, SqliteStatement, SqliteRow};
+use super::rusqlite::{SqliteResult, SqliteConnection};
 use super::Directory;
 
 pub struct Aliases<'a> {
@@ -15,7 +15,7 @@ pub struct Aliases<'a> {
 impl<'a> Aliases<'a> {
     pub fn new(connection: &'a SqliteConnection, path: Path, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
         let mut row_statement = match directory {
-            Directory::Child(id) => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name;")),
+            Directory::Child(..) => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name;")),
             Directory::Root      => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id IS NULL AND timestamp <= $1 GROUP BY name;"))
         };
 
@@ -25,7 +25,7 @@ impl<'a> Aliases<'a> {
         };
 
         let mut directory_statement = match directory {
-            Directory::Child(id) => try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;")),
+            Directory::Child(..) => try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;")),
             Directory::Root      => try!(connection.prepare("SELECT id FROM directory WHERE parent_id IS NULL;"))
         };
 
@@ -40,7 +40,7 @@ impl<'a> Aliases<'a> {
             alias_id_list.push(try!(row).get::<i64>(0) as uint);
         }
 
-        let mut file_list: Vec<(uint, String)> = alias_id_list.iter()
+        let file_list: Vec<(uint, String)> = alias_id_list.iter()
             .map(|id| alias_to_file(connection, *id))
             .filter(|option| option.is_some())
             .map(|option| option.unwrap())
@@ -101,7 +101,7 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
 
                     Some((file_path, boxed_slice))
                 },
-                Err(e)      => None // no opportunity to return error in an iterator
+                Err(..)     => None // no opportunity to return error in an iterator
             },
             None            => None
         } 
@@ -168,17 +168,23 @@ pub fn persist_block(connection: &SqliteConnection, hash: &str) -> SqliteResult<
 
 pub fn file_known(connection: &SqliteConnection, hash: &str) -> bool {
     connection.query_row(
-        "SELECT COUNT(id) FROM file
-        WHERE hash = $1;",
+        "SELECT COUNT(id) FROM file WHERE hash = $1;",
         &[&hash],
         |row| row.get::<i64>(0) > 0
     )
 }
 
+pub fn block_hash_from_id(connection: &SqliteConnection, id: uint) -> String {
+    connection.query_row(
+        "SELECT hash FROM block WHERE id = $1;",
+        &[&(id as i64)],
+        |row| row.get(0)
+    )
+}
+
 pub fn block_id_from_hash(connection: &SqliteConnection, hash: &str) -> Option<uint> {
     let result: Option<i64> = connection.query_row(
-        "SELECT SUM(id) FROM block
-        WHERE hash = $1;",
+        "SELECT SUM(id) FROM block WHERE hash = $1;",
         &[&hash],
         |row| row.get(0)
     );

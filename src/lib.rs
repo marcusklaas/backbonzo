@@ -13,7 +13,6 @@ mod database;
 mod crypto;
 
 static TEMP_OUTPUT_DIRECTORY: &'static str = "/tmp/backbonzo/";
-static TEMP_RESTORE_DIRECTORY: &'static str = "/tmp/backbonzo-restore/";
 static BLOCK_SIZE: uint = 1024 * 1024;
 
 pub enum BonzoError {
@@ -86,13 +85,44 @@ pub fn update(path: &Path, database_path: &Path) -> BonzoResult<()> {
     export_index(database_path)
 }
 
-pub fn restore(database_path: &Path) -> BonzoResult<()> {
+pub fn restore(restore_path: &Path, database_path: &Path, timestamp: u64) -> BonzoResult<()> {
     let connection = try!(open_connection(database_path));
 
-    let mut aliases = try!(database::Aliases::new(&connection, Path::new(TEMP_RESTORE_DIRECTORY), Directory::Root, 1428039403).map_err(database_to_bonzo));
+    let mut aliases = try!(database::Aliases::new(&connection, restore_path.clone(), Directory::Root, timestamp).map_err(database_to_bonzo));
 
-    for (path, file_id_list) in aliases {
-        println!("Restoring {} blocks to file {}", file_id_list.len(), path.as_str().unwrap());
+    for (path, block_list) in aliases {
+        try!(restore_file(&connection, &path, block_list.as_slice()));
+    }
+
+    Ok(())
+}
+
+pub fn restore_file(connection: &SqliteConnection, path: &Path, block_list: &[uint]) -> BonzoResult<()> {
+    println!("Restoring {} block(s) to file {}", block_list.len(), path.as_str().unwrap());
+
+    // create output directory and  ignore error - it most likely already exists.
+    let mut file_directory = path.clone();
+    file_directory.pop();
+    mkdir_recursive(&file_directory, std::io::FilePermission::all());
+    
+    // open file
+    let mut file = try!(File::create(path).map_err(io_to_bonzo));
+
+    for block_id in block_list.iter() {
+        // get hash
+        let hash = database::block_hash_from_id(connection, *block_id);
+
+        // open block
+        let block_path = block_output_path(hash.as_slice());
+        let mut block_file = try!(File::open(&block_path).map_err(io_to_bonzo));
+        let bytes = try!(block_file.read_to_end().map_err(io_to_bonzo));
+
+        // decrypt block
+        let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice()).map_err(crypto_to_bonzo));
+
+        // write to file
+        try!(file.write(decrypted_bytes.as_slice()).map_err(io_to_bonzo));
+        try!(file.fsync().map_err(io_to_bonzo));
     }
 
     Ok(())
