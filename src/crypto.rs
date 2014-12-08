@@ -52,3 +52,25 @@ pub fn encrypt_block(block: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     
     Ok(final_result)
 }
+
+// FIXME: lots of duplicate code with function above -- can we refactor?
+pub fn decrypt_block(block: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
+    let mut decryptor: Box<symmetriccipher::Decryptor> = aes::cbc_decryptor(
+        aes::KeySize::KeySize256,
+        TEST_KEY.as_bytes(),
+        &[],
+        PkcsPadding
+    );
+    
+    let mut final_result = Vec::<u8>::new();
+    let mut buffer = [0, ..4096];
+    let mut read_buffer = buffer::RefReadBuffer::new(block);
+    let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+    
+    while !read_buffer.is_empty() {
+        try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true));        
+        final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+    }
+    
+    Ok(final_result)
+}

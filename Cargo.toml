@@ -8,7 +8,7 @@ authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 name = "backbonzo"
 
 [dependencies.toml]
-toml = "*"
+git = "https://github.com/alexcrichton/toml-rs"
 
 [dependencies.rusqlite]
 rust-sqlite = "*"

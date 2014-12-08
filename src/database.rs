@@ -1,7 +1,140 @@
 extern crate time;
 
-use super::rusqlite::{SqliteResult, SqliteConnection};
+use super::rusqlite::{SqliteResult, SqliteConnection, SqliteRows, SqliteStatement, SqliteRow};
 use super::Directory;
+
+pub struct Aliases<'a> {
+    connection: &'a SqliteConnection,
+    path: Path,
+    timestamp: u64,
+    file_list: Vec<(uint, String)>,
+    directory_id_list: Vec<uint>,
+    subdirectory: Option<Box<Aliases<'a>>>
+}
+
+impl<'a> Aliases<'a> {
+    pub fn new(connection: &'a SqliteConnection, path: Path, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
+        let mut row_statement = match directory {
+            Directory::Child(id) => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name;")),
+            Directory::Root      => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id IS NULL AND timestamp <= $1 GROUP BY name;"))
+        };
+
+        let mut rows = match directory {
+            Directory::Child(id) => try!(row_statement.query(&[&(id as i64), &(timestamp as i64)])),
+            Directory::Root      => try!(row_statement.query(&[&(timestamp as i64)]))
+        };
+
+        let mut directory_statement = match directory {
+            Directory::Child(id) => try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;")),
+            Directory::Root      => try!(connection.prepare("SELECT id FROM directory WHERE parent_id IS NULL;"))
+        };
+
+        let mut directories = match directory {
+            Directory::Child(id) => try!(directory_statement.query(&[&(id as i64)])),
+            Directory::Root      => try!(directory_statement.query(&[]))
+        };
+
+        let mut alias_id_list: Vec<uint> = Vec::new();
+
+        for row in rows {
+            alias_id_list.push(try!(row).get::<i64>(0) as uint);
+        }
+
+        let mut file_list: Vec<(uint, String)> = alias_id_list.iter()
+            .map(|id| alias_to_file(connection, *id))
+            .filter(|option| option.is_some())
+            .map(|option| option.unwrap())
+            .collect();
+
+        let mut directory_id_list: Vec<uint> = Vec::new();
+
+        for directory in directories {
+            directory_id_list.push(try!(directory).get::<i64>(0) as uint);
+        }
+        
+        Ok(Aliases {
+            connection: connection,
+            path: path,
+            timestamp: timestamp,
+            file_list: file_list,
+            directory_id_list: directory_id_list,
+            subdirectory: None
+        })
+    }
+}
+
+impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
+    fn next(&mut self) -> Option<(Path, Box<[uint]>)> {
+        // return file from child directory
+        loop {
+            match self.subdirectory {
+                None              => (),
+                Some(ref mut dir) => match dir.next() {
+                    None        => (),
+                    Some(alias) => return Some(alias)
+                }
+            }
+
+            match self.directory_id_list.pop() {
+                None     => break,
+                Some(id) => {
+                    let mut directory_path = self.path.clone();
+                    directory_path.push(get_directory_name(self.connection, id));
+                    
+                    self.subdirectory = Aliases::new(
+                        self.connection,
+                        directory_path,
+                        Directory::Child(id),
+                        self.timestamp
+                    )
+                    .ok().map(|alias| box alias)
+                }
+            }
+        }
+
+        // return file from current directory
+        match self.file_list.pop() {
+            Some((id, name)) => match get_file_block_list(self.connection, id) {
+                Ok(boxed_slice) => { 
+                    let mut file_path = self.path.clone();
+                    file_path.push(name);
+
+                    Some((file_path, boxed_slice))
+                },
+                Err(e)      => None // no opportunity to return error in an iterator
+            },
+            None            => None
+        } 
+    }
+}
+
+fn get_directory_name(connection: &SqliteConnection, directory_id: uint) -> String {
+    connection.query_row(
+        "SELECT name FROM directory WHERE id = $1;",
+        &[&(directory_id as i64)],
+        |row| row.get::<String>(0)
+    )
+}
+
+fn alias_to_file(connection: &SqliteConnection, alias_id: uint) -> Option<(uint, String)> {
+    connection.query_row(
+        "SELECT file_id, name FROM alias WHERE id = $1;",
+        &[&(alias_id as i64)],
+        |row| row.get::<Option<i64>>(0).map(|id| (id as uint, row.get::<String>(1)))
+    )
+}
+
+fn get_file_block_list(connection: &SqliteConnection, file_id: uint) -> SqliteResult<Box<[uint]>> {
+    let mut statement = try!(connection.prepare("SELECT id FROM fileblock WHERE file_id = $1;"));
+    let mut blocks = try!(statement.query(&[&(file_id as i64)]));
+    let mut block_id_list = Vec::new();
+
+    for block in blocks {
+        block_id_list.push(try!(block).get::<i64>(0) as uint);
+    }
+
+    Ok(block_id_list.into_boxed_slice())
+}
 
 pub fn persist_file(connection: &SqliteConnection, directory: Directory, filename: &str, hash: &str, block_id_list: &[uint]) -> SqliteResult<()> {
     let transaction = try!(connection.transaction());
@@ -88,7 +221,8 @@ fn create_directory_table(connection: &SqliteConnection) -> SqliteResult<uint> {
         id        INTEGER PRIMARY KEY,
         parent_id INTEGER,
         name      TEXT NOT NULL,
-        FOREIGN KEY(parent_id) REFERENCES directory(id)
+        FOREIGN KEY(parent_id) REFERENCES directory(id),
+        UNIQUE(parent_id, name)
     );", &[])
 }
 

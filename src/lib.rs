@@ -13,6 +13,7 @@ mod database;
 mod crypto;
 
 static TEMP_OUTPUT_DIRECTORY: &'static str = "/tmp/backbonzo/";
+static TEMP_RESTORE_DIRECTORY: &'static str = "/tmp/backbonzo-restore/";
 static BLOCK_SIZE: uint = 1024 * 1024;
 
 pub enum BonzoError {
@@ -85,6 +86,18 @@ pub fn update(path: &Path, database_path: &Path) -> BonzoResult<()> {
     export_index(database_path)
 }
 
+pub fn restore(database_path: &Path) -> BonzoResult<()> {
+    let connection = try!(open_connection(database_path));
+
+    let mut aliases = try!(database::Aliases::new(&connection, Path::new(TEMP_RESTORE_DIRECTORY), Directory::Root, 1428039403).map_err(database_to_bonzo));
+
+    for (path, file_id_list) in aliases {
+        println!("Restoring {} blocks to file {}", file_id_list.len(), path.as_str().unwrap());
+    }
+
+    Ok(())
+}
+
 fn export_index(database_path: &Path) -> BonzoResult<()> {
 	let mut file = try!(File::open(database_path).map_err(io_to_bonzo));
     let bytes = try!(file.read_to_end().map_err(io_to_bonzo));
@@ -119,9 +132,7 @@ fn export_directory(connection: &SqliteConnection, path: &Path, directory: Direc
     
     for directory_path in directory_list.iter() {
         let relative_path = try!(directory_path.path_relative_from(path).ok_or(BonzoError::Other("... no words".to_string())));
-    
         let name = try!(relative_path.as_str().ok_or(BonzoError::Other("Cannot express directory name in UTF8".to_string())));
-        
         let child_directory = try!(database::get_directory_id(connection, directory, name).map_err(database_to_bonzo));
     
         try!(export_directory(connection, directory_path, child_directory));
@@ -138,8 +149,6 @@ fn export_file(connection: &SqliteConnection, directory: Directory, path: &Path)
     }
     
     let mut blocks = try!(Blocks::from_path(path, BLOCK_SIZE).map_err(io_to_bonzo));
-    
-    /* FIXME: this next block should be done functionally */
     let mut block_id_list = Vec::new();
     
     loop {
