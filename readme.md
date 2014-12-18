@@ -33,6 +33,7 @@ priority todo list
 - [ ] implement partial decryption command
 - [ ] add clean up command
 - [ ] deflate blocks before encryption
+- [ ] add tests
 
 build
 -----
