@@ -34,6 +34,7 @@ priority todo list
 - [ ] add clean up command
 - [ ] deflate blocks before encryption
 - [ ] add tests
+- [ ] check that encryption passwords is consistent
 
 build
 -----
