@@ -7,7 +7,7 @@ extern crate time;
 #[phase(plugin)] extern crate docopt_macros;
 
 use docopt::Docopt;
-use backbonzo::{init, update, restore, BonzoError, BonzoResult};
+use backbonzo::{BackupManager, BonzoError, BonzoResult};
 
 docopt!(Args deriving Show, "
 backbonzo
@@ -27,6 +27,7 @@ Options:
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 static TEMP_INPUT_DIRECTORY: &'static str = ".";
+static TEMP_OUTPUT_DIRECTORY: &'static str = "/tmp/backbonzo/";
 static TEMP_RESTORE_DIRECTORY: &'static str = "/tmp/backbonzo-restore/";
 
 #[deriving(Show, Decodable)]
@@ -40,15 +41,26 @@ fn main() {
     let args: Args = Args::docopt().decode().unwrap_or_else(|e| e.exit());
     
     let input_path = Path::new(TEMP_INPUT_DIRECTORY);
-    let restore_path = Path::new(TEMP_RESTORE_DIRECTORY);
+    let output_path = Path::new(TEMP_OUTPUT_DIRECTORY);
     
-    let mut database_path = Path::new(".");
+    let mut database_path = input_path.clone();
     database_path.push(DATABASE_FILENAME);
 
     let result = match args.arg_OPERATION {
-        Operation::Init    => init(&database_path),
-        Operation::Restore => restore(&restore_path, &database_path, time::get_time().sec as u64),
-        Operation::Backup  => update(&input_path, &database_path)
+        Operation::Init    => {
+            BackupManager::init(&database_path)
+        },
+        Operation::Restore => {
+            let restore_path = Path::new(TEMP_RESTORE_DIRECTORY);
+            let manager = BackupManager::new(database_path, restore_path, output_path, Vec::from_elem(32, 0)).ok().unwrap();
+            
+            manager.restore(time::get_time().sec as u64)
+        },
+        Operation::Backup  => {
+            let manager = BackupManager::new(database_path, input_path, output_path, Vec::from_elem(32, 0)).ok().unwrap();
+            
+            manager.update()
+        }
     };
     
     handle_result(result);

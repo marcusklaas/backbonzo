@@ -1,20 +1,14 @@
 [package]
 
 name = "backbonzo"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 
 [lib]
 name = "backbonzo"
 
-[dependencies.toml]
-git = "https://github.com/alexcrichton/toml-rs"
-
 [dependencies.rusqlite]
 rust-sqlite = "*"
-
-[dependencies.flate2]
-flate2 = "*"
 
 [dependencies]
 rust-crypto = "*"

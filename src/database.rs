@@ -192,7 +192,7 @@ pub fn block_id_from_hash(connection: &SqliteConnection, hash: &str) -> Option<u
     result.map(|signed| signed as uint)
 }
 
-pub fn get_directory_id(connection: &SqliteConnection, parent: Directory, name: &str) -> SqliteResult<Directory> {
+pub fn get_directory(connection: &SqliteConnection, parent: Directory, name: &str) -> SqliteResult<Directory> {
     let parent_id: Option<i64> = match parent {
         Directory::Root      => None,
         Directory::Child(id) => Some(id as i64)
