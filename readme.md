@@ -45,4 +45,4 @@ build
 license
 -------
 
-MIT or Apache2 probably. Project name courtesy of [http://mrsharpoblunto.github.io/foswig.js/](foswig.js).
+MIT or Apache2 probably. Project name courtesy of [foswig.js](http://mrsharpoblunto.github.io/foswig.js/).
