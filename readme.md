@@ -26,10 +26,13 @@ priority todo list
 - [ ] take parameters/ read from configuration file
 - [x] seperate commands for initialization and ordinary backup
 - [ ] add timeout parameter
-- [ ] test correctness and reversibility of encryption
+- [x] test correctness and reversibility of encryption
 - [x] export index and config
-- [ ] implement decryption command (total, file) with timestamp
+- [x] implement total decryption command with timestamp
 - [ ] split file writing and encryption to different threads
+- [ ] implement partial decryption command
+- [ ] add clean up command
+- [ ] deflate blocks before encryption
 
 build
 -----
@@ -37,7 +40,7 @@ build
 * Install rustc, cargo and the sqlite development headers
 * `$ git clone https://github.com/marcusklaas/backbonzo.git`
 * `$ cd backbonzo`
-* `$ cargo run`
+* `$ cargo build`
 
 license
 -------
