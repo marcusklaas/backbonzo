@@ -26,10 +26,15 @@ priority todo list
 - [ ] take parameters/ read from configuration file
 - [x] seperate commands for initialization and ordinary backup
 - [ ] add timeout parameter
-- [ ] test correctness and reversibility of encryption
+- [x] test correctness and reversibility of encryption
 - [x] export index and config
-- [ ] implement decryption command (total, file) with timestamp
+- [x] implement total decryption command with timestamp
 - [ ] split file writing and encryption to different threads
+- [ ] implement partial decryption command
+- [ ] add clean up command
+- [ ] deflate blocks before encryption
+- [ ] add tests
+- [ ] check that encryption passwords is consistent
 
 build
 -----
@@ -37,9 +42,9 @@ build
 * Install rustc, cargo and the sqlite development headers
 * `$ git clone https://github.com/marcusklaas/backbonzo.git`
 * `$ cd backbonzo`
-* `$ cargo run`
+* `$ cargo build`
 
 license
 -------
 
-MIT or Apache2 probably. Project name courtesy of [http://mrsharpoblunto.github.io/foswig.js/](foswig.js).
+MIT or Apache2 probably. Project name courtesy of [foswig.js](http://mrsharpoblunto.github.io/foswig.js/).
