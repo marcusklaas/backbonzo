@@ -4,9 +4,16 @@ use super::rust_crypto::buffer::{WriteBuffer, ReadBuffer};
 use super::rust_crypto::blockmodes::PkcsPadding;
 use super::rust_crypto::sha2::Sha256;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
+use super::rust_crypto::scrypt::{scrypt_simple, scrypt_check, ScryptParams};
 
 use super::Blocks;
 use std::io::IoResult;
+
+pub fn hash_password(password: &str) -> IoResult<String> {
+    let params = ScryptParams::new(14, 8, 1);
+
+    scrypt_simple(password, &params)
+}
 
 pub fn hash_file(path: &Path) -> IoResult<String> {
     let mut hasher = Sha256::new();

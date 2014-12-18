@@ -12,8 +12,6 @@ use rust_crypto::symmetriccipher::SymmetricCipherError;
 mod database;
 mod crypto;
 
-const BLOCK_SIZE: uint = 1024 * 1024;
-
 pub enum BonzoError {
     Database(SqliteError),
     Io(IoError),
@@ -57,11 +55,12 @@ pub struct BackupManager {
     database_path: Path,
     source_path: Path,
     backup_path: Path,
+    block_size: uint,
     password: Vec<u8>
 }
 
 impl BackupManager {
-    pub fn new(database_path: Path, source_path: Path, backup_path: Path, password: Vec<u8>) -> BonzoResult<BackupManager> {
+    pub fn new(database_path: Path, source_path: Path, backup_path: Path, block_size: uint, password: Vec<u8>) -> BonzoResult<BackupManager> {
         if !database_path.exists() {
             return Err(BonzoError::Other(format!("Database file not found"))); 
         }
@@ -71,18 +70,9 @@ impl BackupManager {
             database_path: database_path,
             source_path: source_path,
             backup_path: backup_path,
+            block_size: block_size,
             password: password
         })
-    }
-
-    pub fn init(database_path: &Path) -> BonzoResult<()> {
-        if database_path.exists() {
-            return Err(BonzoError::Other(format!("Database file already exists"))); 
-        }
-        
-        let connection = try!(open_connection(database_path));
-        
-        database::setup(&connection).map_err(database_to_bonzo)
     }
 
     pub fn update(&self) -> BonzoResult<()> {
@@ -172,7 +162,7 @@ impl BackupManager {
             return Ok(());
         }
         
-        let mut blocks = try!(Blocks::from_path(path, BLOCK_SIZE).map_err(io_to_bonzo));
+        let mut blocks = try!(Blocks::from_path(path, self.block_size).map_err(io_to_bonzo));
         let mut block_id_list = Vec::new();
         
         loop {
@@ -221,6 +211,20 @@ fn database_to_bonzo(err: SqliteError) -> BonzoError {
 
 fn crypto_to_bonzo(err: SymmetricCipherError) -> BonzoError {
     BonzoError::Crypto(err)
+}
+
+pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
+    if database_path.exists() {
+        return Err(BonzoError::Other(format!("Database file already exists"))); 
+    }
+    
+    let connection = try!(open_connection(database_path));
+
+    let hash = try!(crypto::hash_password(password.as_slice()).map_err(io_to_bonzo));
+    
+    try!(database::setup(&connection).map_err(database_to_bonzo));
+
+    database::set_key(&connection, "password", hash.as_slice()).map(|_| ()).map_err(database_to_bonzo)
 }
 
 fn open_connection(path: &Path) -> BonzoResult<SqliteConnection> {

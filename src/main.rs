@@ -7,28 +7,26 @@ extern crate time;
 #[phase(plugin)] extern crate docopt_macros;
 
 use docopt::Docopt;
-use backbonzo::{BackupManager, BonzoError, BonzoResult};
+use backbonzo::{init, BackupManager, BonzoError, BonzoResult};
 
 docopt!(Args deriving Show, "
 backbonzo
 
 Usage:
-  backbonzo OPERATION [options]
+  backbonzo OPERATION [options] --key <key>
+  backbonzo (-h | --help)
 
 Operations:
   init, backup, restore
   
 Options:
-  -h --help                 Show this screen.
-  -d --destination=<dest>   Output directory (later mandatory).
+  -s --source=<source>      Source directory [default: ./].
+  -d --destination=<dest>   Backup directory [default: /tmp/backbonzo/].
   -k --key=<key>            Encryption key. 
   -b --blocksize=<bs>       Size of blocks in megabytes [default: 1].
-", arg_OPERATION: Operation)
+", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String)
 
 static DATABASE_FILENAME: &'static str = "index.db3";
-static TEMP_INPUT_DIRECTORY: &'static str = ".";
-static TEMP_OUTPUT_DIRECTORY: &'static str = "/tmp/backbonzo/";
-static TEMP_RESTORE_DIRECTORY: &'static str = "/tmp/backbonzo-restore/";
 
 #[deriving(Show, Decodable)]
 enum Operation {
@@ -40,24 +38,24 @@ enum Operation {
 fn main() {
     let args: Args = Args::docopt().decode().unwrap_or_else(|e| e.exit());
     
-    let input_path = Path::new(TEMP_INPUT_DIRECTORY);
-    let output_path = Path::new(TEMP_OUTPUT_DIRECTORY);
+    let source_path = Path::new(args.flag_source);
+    let output_path = Path::new(args.flag_destination);
+    let block_bytes = 1000 * 1000 * args.flag_blocksize;
     
-    let mut database_path = input_path.clone();
+    let mut database_path = source_path.clone();
     database_path.push(DATABASE_FILENAME);
 
     let result = match args.arg_OPERATION {
         Operation::Init    => {
-            BackupManager::init(&database_path)
+            init(&database_path, args.flag_key)
         },
         Operation::Restore => {
-            let restore_path = Path::new(TEMP_RESTORE_DIRECTORY);
-            let manager = BackupManager::new(database_path, restore_path, output_path, Vec::from_elem(32, 0)).ok().unwrap();
+            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, Vec::from_elem(32, 0)).ok().unwrap();
             
             manager.restore(time::get_time().sec as u64)
         },
         Operation::Backup  => {
-            let manager = BackupManager::new(database_path, input_path, output_path, Vec::from_elem(32, 0)).ok().unwrap();
+            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, Vec::from_elem(32, 0)).ok().unwrap();
             
             manager.update()
         }

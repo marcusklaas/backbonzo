@@ -212,59 +212,61 @@ pub fn get_directory(connection: &SqliteConnection, parent: Directory, name: &st
         .map(|_| Directory::Child(connection.last_insert_rowid() as uint))
 }
 
+pub fn set_key(connection: &SqliteConnection, key: &str, value: &str) -> SqliteResult<uint> {
+    connection.execute("INSERT INTO setting (key, value) VALUES ($1, $2);", &[&key, &value])
+}
+
+pub fn get_key(connection: &SqliteConnection, key: &str) -> Option<String> {
+    connection.query_row(
+        "SELECT value FROM block WHERE key = $1;",
+        &[&key],
+        |row| row.get(0)
+    )
+}
+
 pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
-    try!(create_directory_table(connection));
-    try!(create_file_table(connection));
-    try!(create_file_alias_table(connection));
-    try!(create_block_table(connection));
-    try!(create_file_block_table(connection));
-    
+    let queries = [
+        "CREATE TABLE directory (
+            id        INTEGER PRIMARY KEY,
+            parent_id INTEGER,
+            name      TEXT NOT NULL,
+            FOREIGN KEY(parent_id) REFERENCES directory(id),
+            UNIQUE(parent_id, name)
+        );",
+        "CREATE TABLE file (
+            id           INTEGER PRIMARY KEY,
+            hash         TEXT NOT NULL
+        );",
+        "CREATE TABLE alias (
+            id           INTEGER PRIMARY KEY,
+            directory_id INTEGER,
+            file_id      INTEGER,
+            name         TEXT NOT NULL,
+            timestamp    INTEGER,
+            FOREIGN KEY(directory_id) REFERENCES directory(id),
+            FOREIGN KEY(file_id) REFERENCES file(id)
+        );",
+        "CREATE TABLE block (
+            id           INTEGER PRIMARY KEY,
+            hash         TEXT NOT NULL
+        );",
+        "CREATE TABLE fileblock (
+            id           INTEGER PRIMARY KEY,
+            file_id      INTEGER NOT NULL,
+            ordinal      INTEGER NOT NULL,
+            block_id     INTEGER NOT NULL,
+            FOREIGN KEY(file_id) REFERENCES file(id),
+            FOREIGN KEY(block_id) REFERENCES block(id)
+        );",
+        "CREATE TABLE setting (
+            key          TEXT PRIMARY KEY,
+            value        TEXT
+        );"
+    ];
+
+    for query in queries.iter() {
+        try!(connection.execute(*query, &[]));
+    }
+        
     Ok(())
-}
-
-fn create_directory_table(connection: &SqliteConnection) -> SqliteResult<uint> {
-    connection.execute("CREATE TABLE directory (
-        id        INTEGER PRIMARY KEY,
-        parent_id INTEGER,
-        name      TEXT NOT NULL,
-        FOREIGN KEY(parent_id) REFERENCES directory(id),
-        UNIQUE(parent_id, name)
-    );", &[])
-}
-
-fn create_file_table(connection: &SqliteConnection) -> SqliteResult<uint> {
-    connection.execute("CREATE TABLE file (
-        id           INTEGER PRIMARY KEY,
-        hash         TEXT NOT NULL
-    );", &[])
-}
-
-fn create_file_alias_table(connection: &SqliteConnection) -> SqliteResult<uint> {
-    connection.execute("CREATE TABLE alias (
-        id           INTEGER PRIMARY KEY,
-        directory_id INTEGER,
-        file_id      INTEGER,
-        name         TEXT NOT NULL,
-        timestamp    INTEGER,
-        FOREIGN KEY(directory_id) REFERENCES directory(id),
-        FOREIGN KEY(file_id) REFERENCES file(id)
-    );", &[])
-}
-
-fn create_block_table(connection: &SqliteConnection) -> SqliteResult<uint> {
-    connection.execute("CREATE TABLE block (
-        id           INTEGER PRIMARY KEY,
-        hash         TEXT NOT NULL
-    );", &[])
-}
-
-fn create_file_block_table(connection: &SqliteConnection) -> SqliteResult<uint> {
-    connection.execute("CREATE TABLE fileblock (
-        id           INTEGER PRIMARY KEY,
-        file_id      INTEGER NOT NULL,
-        ordinal      INTEGER NOT NULL,
-        block_id     INTEGER NOT NULL,
-        FOREIGN KEY(file_id) REFERENCES file(id),
-        FOREIGN KEY(block_id) REFERENCES block(id)
-    );", &[])
 }
