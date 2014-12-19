@@ -218,7 +218,7 @@ pub fn set_key(connection: &SqliteConnection, key: &str, value: &str) -> SqliteR
 
 pub fn get_key(connection: &SqliteConnection, key: &str) -> Option<String> {
     connection.query_row(
-        "SELECT value FROM block WHERE key = $1;",
+        "SELECT value FROM setting WHERE key = $1;",
         &[&key],
         |row| row.get(0)
     )

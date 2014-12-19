@@ -50,12 +50,12 @@ fn main() {
             init(&database_path, args.flag_key)
         },
         Operation::Restore => {
-            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, Vec::from_elem(32, 0)).ok().unwrap();
+            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, args.flag_key).ok().unwrap();
             
             manager.restore(time::get_time().sec as u64)
         },
         Operation::Backup  => {
-            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, Vec::from_elem(32, 0)).ok().unwrap();
+            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, args.flag_key).ok().unwrap();
             
             manager.update()
         }

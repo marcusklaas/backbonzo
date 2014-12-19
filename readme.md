@@ -17,7 +17,7 @@ backbonzo will be a backup management tool written in Rust. It aims to
 current state
 -------------
 
-Development on backbonzo has only just begun. It is certainly not functional yet. At the moment it scans the working directory for new and changed files and outputs encrypted blocks to `/tmp`. There is no way to recover a backup at this time.
+Development on backbonzo has only just begun. At this time it is possible to create and restore encrypted backups. Functionality is extremely limited.
 
 priority todo list
 ------------------
@@ -34,7 +34,7 @@ priority todo list
 - [ ] add clean up command
 - [ ] deflate blocks before encryption
 - [ ] add tests
-- [ ] check that encryption passwords is consistent
+- [x] check that encryption passwords is consistent
 
 build
 -----

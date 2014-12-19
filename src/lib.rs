@@ -56,14 +56,17 @@ pub struct BackupManager {
     source_path: Path,
     backup_path: Path,
     block_size: uint,
-    password: Vec<u8>
+    password: String,
+    encryption_key: Vec<u8>
 }
 
 impl BackupManager {
-    pub fn new(database_path: Path, source_path: Path, backup_path: Path, block_size: uint, password: Vec<u8>) -> BonzoResult<BackupManager> {
+    pub fn new(database_path: Path, source_path: Path, backup_path: Path, block_size: uint, password: String) -> BonzoResult<BackupManager> {
         if !database_path.exists() {
             return Err(BonzoError::Other(format!("Database file not found"))); 
         }
+
+        let key = crypto::derive_key(password.as_slice());
                 
         Ok(BackupManager {
             connection: try!(open_connection(&database_path)),
@@ -71,11 +74,14 @@ impl BackupManager {
             source_path: source_path,
             backup_path: backup_path,
             block_size: block_size,
-            password: password
+            password: password,
+            encryption_key: key
         })
     }
 
     pub fn update(&self) -> BonzoResult<()> {
+        try!(self.check_key());
+
         try!(self.export_directory(&self.source_path, Directory::Root));
     
         self.export_index()
@@ -110,7 +116,7 @@ impl BackupManager {
             let bytes = try!(block_file.read_to_end().map_err(io_to_bonzo));
 
             // decrypt block
-            let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.password.as_slice()).map_err(crypto_to_bonzo));
+            let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice()).map_err(crypto_to_bonzo));
 
             // write to file
             try!(file.write(decrypted_bytes.as_slice()).map_err(io_to_bonzo));
@@ -120,10 +126,20 @@ impl BackupManager {
         Ok(())
     }
 
+    fn check_key(&self) -> BonzoResult<()> {
+        let hash = database::get_key(&self.connection, "password");
+        let real_hash = try!(hash.ok_or(BonzoError::Other(format!("Saved hash is NULL"))));
+
+        match crypto::check_password(self.password.as_slice(), real_hash.as_slice()) {
+            true  => Ok(()),
+            false => Err(BonzoError::Other(format!("Password is not the same as in database")))
+        }
+    }
+
     fn export_index(&self) -> BonzoResult<()> {
         let mut file = try!(File::open(&self.database_path).map_err(io_to_bonzo));
         let bytes = try!(file.read_to_end().map_err(io_to_bonzo));
-        let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.password.as_slice()).map_err(crypto_to_bonzo));
+        let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice()).map_err(crypto_to_bonzo));
         
         let mut new_index = self.backup_path.clone();
         new_index.push("index-new");
@@ -145,8 +161,8 @@ impl BackupManager {
         }
         
         for directory_path in directory_list.iter() {
-            let relative_path = try!(directory_path.path_relative_from(path).ok_or(BonzoError::Other("Could not get relative path".to_string())));
-            let name = try!(relative_path.as_str().ok_or(BonzoError::Other("Cannot express directory name in UTF8".to_string())));
+            let relative_path = try!(directory_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
+            let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
             let child_directory = try!(database::get_directory(&self.connection, directory, name).map_err(database_to_bonzo));
         
             try!(self.export_directory(directory_path, child_directory));
@@ -172,7 +188,7 @@ impl BackupManager {
             }
         }
         
-        let filename_bytes = try!(path.filename().ok_or(BonzoError::Other("Could not convert path to string".to_string())));
+        let filename_bytes = try!(path.filename().ok_or(BonzoError::Other(format!("Could not convert path to string"))));
         let filename = String::from_utf8_lossy(filename_bytes).into_owned();
         
         database::persist_file(
@@ -191,7 +207,7 @@ impl BackupManager {
             return Ok(id)
         }
         
-        let bytes: Vec<u8> = try!(crypto::encrypt_block(block, self.password.as_slice()).map_err(crypto_to_bonzo));
+        let bytes: Vec<u8> = try!(crypto::encrypt_block(block, self.encryption_key.as_slice()).map_err(crypto_to_bonzo));
         let path = block_output_path(&self.backup_path, hash.as_slice());
             
         try!(write_to_disk(&path, bytes.as_slice()).map_err(io_to_bonzo));
