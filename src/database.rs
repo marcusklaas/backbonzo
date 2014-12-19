@@ -14,30 +14,37 @@ pub struct Aliases<'a> {
 
 impl<'a> Aliases<'a> {
     pub fn new(connection: &'a SqliteConnection, path: Path, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
-        let mut row_statement = match directory {
-            Directory::Child(..) => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name;")),
-            Directory::Root      => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id IS NULL AND timestamp <= $1 GROUP BY name;"))
-        };
-
         let mut rows = match directory {
-            Directory::Child(id) => try!(row_statement.query(&[&(id as i64), &(timestamp as i64)])),
-            Directory::Root      => try!(row_statement.query(&[&(timestamp as i64)]))
+            Directory::Child(id) => {
+                let statement = try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name;"))
+                try!(statement.query(&[&(id as i64), &(timestamp as i64)]))
+            },
+            Directory::Root      => {
+                let statement = try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id IS NULL AND timestamp <= $1 GROUP BY name;"))
+                try!(statement.query(&[&(timestamp as i64)]))
+            }
         };
-
-        let mut directory_statement = match directory {
-            Directory::Child(..) => try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;")),
-            Directory::Root      => try!(connection.prepare("SELECT id FROM directory WHERE parent_id IS NULL;"))
-        };
-
+        
         let mut directories = match directory {
-            Directory::Child(id) => try!(directory_statement.query(&[&(id as i64)])),
-            Directory::Root      => try!(directory_statement.query(&[]))
+            Directory::Child(id) => {
+                let statement = try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;"));
+                try!(statement.query(&[&(id as i64)]))
+            },
+            Directory::Root      => {
+                let statement = try!(connection.prepare("SELECT id FROM directory WHERE parent_id IS NULL;"));
+                try!(statement.query(&[]))
+            }
         };
 
         let mut alias_id_list: Vec<uint> = Vec::new();
+        let mut directory_id_list: Vec<uint> = Vec::new();
 
         for row in rows {
             alias_id_list.push(try!(row).get::<i64>(0) as uint);
+        }
+
+        for directory in directories {
+            directory_id_list.push(try!(directory).get::<i64>(0) as uint);
         }
 
         let file_list: Vec<(uint, String)> = alias_id_list.iter()
@@ -45,12 +52,6 @@ impl<'a> Aliases<'a> {
             .filter(|option| option.is_some())
             .map(|option| option.unwrap())
             .collect();
-
-        let mut directory_id_list: Vec<uint> = Vec::new();
-
-        for directory in directories {
-            directory_id_list.push(try!(directory).get::<i64>(0) as uint);
-        }
         
         Ok(Aliases {
             connection: connection,
