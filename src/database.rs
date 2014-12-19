@@ -45,7 +45,7 @@ impl<'a> Aliases<'a> {
             directory_id_list.push(try!(directory).get::<i64>(0) as uint);
         }
 
-        let file_list: Vec<(uint, String)> = alias_id_list.iter()
+        let file_list = alias_id_list.iter()
             .map(|id| alias_to_file(connection, *id))
             .filter(|option| option.is_some())
             .map(|option| option.unwrap())
