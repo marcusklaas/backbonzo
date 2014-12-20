@@ -5,7 +5,7 @@ extern crate "crypto" as rust_crypto;
 
 use std::io::{IoError, IoResult};
 use std::io::fs::{unlink, copy, readdir, File, PathExtensions, mkdir_recursive};
-use std::path::posix::Path;
+use std::path::Path;
 use rusqlite::{SqliteConnection, SqliteError};
 use rust_crypto::symmetriccipher::SymmetricCipherError;
 
