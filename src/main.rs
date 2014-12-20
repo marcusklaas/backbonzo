@@ -24,7 +24,7 @@ Options:
   -d --destination=<dest>   Backup directory [default: /tmp/backbonzo/].
   -k --key=<key>            Encryption key. 
   -b --blocksize=<bs>       Size of blocks in megabytes [default: 1].
-", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String)
+", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String);
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 
