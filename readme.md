@@ -36,6 +36,7 @@ priority todo list
 - [ ] add tests
 - [x] check that encryption passwords are consistent
 - [ ] handle error juggling by implementing fromError trait for BonzoError
+- [ ] use a random initialization vector for each block
 
 build
 -----
