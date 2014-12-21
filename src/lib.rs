@@ -3,7 +3,7 @@
 extern crate rusqlite;
 extern crate "crypto" as rust_crypto;
 
-use std::io::{IoError, IoResult};
+use std::io::{IoError, IoResult, TempDir};
 use std::io::fs::{unlink, copy, readdir, File, PathExtensions, mkdir_recursive};
 use std::path::Path;
 use rusqlite::{SqliteConnection, SqliteError};
@@ -98,10 +98,10 @@ impl BackupManager {
     }
 
     pub fn restore_file(&self, path: &Path, block_list: &[uint]) -> BonzoResult<()> {
-        // create output directory and  ignore error - it most likely already exists.
+        // create output directory
         let mut file_directory = path.clone();
         file_directory.pop();
-        mkdir_recursive(&file_directory, std::io::FilePermission::all());
+        try!(mkdir_recursive(&file_directory, std::io::FilePermission::all()).map_err(io_to_bonzo));
         
         // open file
         let mut file = try!(File::create(path).map_err(io_to_bonzo));
@@ -111,7 +111,7 @@ impl BackupManager {
             let hash = database::block_hash_from_id(&self.connection, *block_id);
 
             // open block
-            let block_path = block_output_path(&self.backup_path, hash.as_slice());
+            let block_path = try!(block_output_path(&self.backup_path, hash.as_slice()).map_err(io_to_bonzo));
             let mut block_file = try!(File::open(&block_path).map_err(io_to_bonzo));
             let bytes = try!(block_file.read_to_end().map_err(io_to_bonzo));
 
@@ -204,7 +204,7 @@ impl BackupManager {
         }
         
         let bytes: Vec<u8> = try!(crypto::encrypt_block(block, self.encryption_key.as_slice()).map_err(crypto_to_bonzo));
-        let path = block_output_path(&self.backup_path, hash.as_slice());
+        let path = try!(block_output_path(&self.backup_path, hash.as_slice()).map_err(io_to_bonzo));
             
         try!(write_to_disk(&path, bytes.as_slice()).map_err(io_to_bonzo));
         
@@ -238,11 +238,23 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
     database::set_key(&connection, "password", hash.as_slice()).map(|_| ()).map_err(database_to_bonzo)
 }
 
-pub fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoResult<Path> {
+pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String) -> BonzoResult<()> {
+    let manager = try!(BackupManager::new(database_path, source_path, backup_path, block_bytes, password));
+            
+    manager.update()
+}
+
+pub fn restore(source_path: Path, backup_path: Path, block_bytes: uint, password: String, timestamp: u64) -> BonzoResult<()> {
+    let temp_directory = try!(TempDir::new("bonzo").map_err(io_to_bonzo));
+    let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), password.as_slice()));
+    let manager = try!(BackupManager::new(decrypted_index_path, source_path, backup_path, block_bytes, password));
+    
+    manager.restore(timestamp)
+}
+
+fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoResult<Path> {
     let encrypted_index_path = backup_path.join("index");
     let decrypted_index_path = temp_dir.join("index.db3");
-
-    println!("Encrypted index path: {}", encrypted_index_path.as_str().unwrap());
 
     let mut file = try!(File::open(&encrypted_index_path).map_err(io_to_bonzo));
     let contents = try!(file.read_to_end().map_err(io_to_bonzo));
@@ -262,13 +274,12 @@ fn open_connection(path: &Path) -> BonzoResult<SqliteConnection> {
     SqliteConnection::open(filename).map_err(database_to_bonzo)
 }
 
-fn block_output_path(base_path: &Path, hash: &str) -> Path {
+fn block_output_path(base_path: &Path, hash: &str) -> IoResult<Path> {
     let path = base_path.join(hash[0..2]);
     
-    // ignore error - it most likely already exists.
-    mkdir_recursive(&path, std::io::FilePermission::all());
+    try!(mkdir_recursive(&path, std::io::FilePermission::all()));
     
-    path.join(hash)
+    Ok(path.join(hash))
 }
 
 fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
