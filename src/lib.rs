@@ -19,7 +19,7 @@ pub enum BonzoError {
     Other(String)
 }
 
-type BonzoResult<T> = Result<T, BonzoError>;
+pub type BonzoResult<T> = Result<T, BonzoError>;
 
 struct Blocks<'a> {
     file: File,
