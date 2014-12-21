@@ -19,7 +19,7 @@ pub enum BonzoError {
     Other(String)
 }
 
-pub type BonzoResult<T> = Result<T, BonzoError>;
+type BonzoResult<T> = Result<T, BonzoError>;
 
 struct Blocks<'a> {
     file: File,
@@ -231,7 +231,6 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
     }
     
     let connection = try!(open_connection(database_path));
-
     let hash = try!(crypto::hash_password(password.as_slice()).map_err(io_to_bonzo));
     
     try!(database::setup(&connection).map_err(database_to_bonzo));
