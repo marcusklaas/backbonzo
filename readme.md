@@ -35,7 +35,7 @@ priority todo list
 - [ ] deflate blocks before encryption
 - [ ] add tests
 - [x] check that encryption passwords are consistent
-- [ ] handle error juggling by implementing fromError trait for BonzoError
+- [x] handle error juggling by implementing fromError trait for BonzoError
 
 build
 -----
