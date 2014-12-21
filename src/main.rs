@@ -7,7 +7,8 @@ extern crate time;
 #[phase(plugin)] extern crate docopt_macros;
 
 use docopt::Docopt;
-use backbonzo::{init, BackupManager, BonzoError, BonzoResult};
+use std::io::TempDir;
+use backbonzo::{init, decrypt_index, BackupManager, BonzoError, BonzoResult};
 
 docopt!(Args deriving Show, "
 backbonzo
@@ -39,7 +40,7 @@ fn main() {
     let args: Args = Args::docopt().decode().unwrap_or_else(|e| e.exit());
     
     let source_path = Path::new(args.flag_source);
-    let output_path = Path::new(args.flag_destination);
+    let backup_path = Path::new(args.flag_destination);
     let block_bytes = 1000 * 1000 * args.flag_blocksize;
     
     let mut database_path = source_path.clone();
@@ -50,12 +51,15 @@ fn main() {
             init(&database_path, args.flag_key)
         },
         Operation::Restore => {
-            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, args.flag_key).ok().unwrap();
+            let temp_directory = TempDir::new("bonzo").ok().expect("Could not create temp directory");
+            let decrypted_index_path = decrypt_index(&backup_path, temp_directory.path(), args.flag_key.as_slice()).ok().expect("Could not decrypt index");
+            
+            let manager = BackupManager::new(decrypted_index_path, source_path, backup_path, block_bytes, args.flag_key).ok().expect("Failed to create backup manager");
             
             manager.restore(time::get_time().sec as u64)
         },
         Operation::Backup  => {
-            let manager = BackupManager::new(database_path, source_path, output_path, block_bytes, args.flag_key).ok().unwrap();
+            let manager = BackupManager::new(database_path, source_path, backup_path, block_bytes, args.flag_key).ok().unwrap();
             
             manager.update()
         }

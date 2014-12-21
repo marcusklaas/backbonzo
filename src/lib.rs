@@ -243,6 +243,23 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
     database::set_key(&connection, "password", hash.as_slice()).map(|_| ()).map_err(database_to_bonzo)
 }
 
+pub fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoResult<Path> {
+    let encrypted_index_path = backup_path.join("index");
+    let decrypted_index_path = temp_dir.join("index.db3");
+
+    println!("Encrypted index path: {}", encrypted_index_path.as_str().unwrap());
+
+    let mut file = try!(File::open(&encrypted_index_path).map_err(io_to_bonzo));
+    let contents = try!(file.read_to_end().map_err(io_to_bonzo));
+
+    let key = crypto::derive_key(password.as_slice());
+    let decrypted_content = try!(crypto::decrypt_block(contents[], key[]).map_err(crypto_to_bonzo));
+
+    try!(write_to_disk(&decrypted_index_path, decrypted_content[]).map_err(io_to_bonzo));
+
+    Ok(decrypted_index_path)
+}
+
 fn open_connection(path: &Path) -> BonzoResult<SqliteConnection> {
     let error = BonzoError::Other(format!("Couldn't convert database path to string"));
     let filename = try!(path.as_str().ok_or(error)); 

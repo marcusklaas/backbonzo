@@ -60,7 +60,7 @@ pub fn hash_block(block: &[u8]) -> String {
     hasher.result_str()
 }
 
-pub fn encrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, symmetriccipher::SymmetricCipherError> {
+pub fn encrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     let mut encryptor: Box<symmetriccipher::Encryptor> = aes::cbc_encryptor(
             aes::KeySize::KeySize256,
             key,
@@ -85,7 +85,7 @@ pub fn encrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, symmetricciphe
     Ok(final_result)
 } 
 
-pub fn decrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, symmetriccipher::SymmetricCipherError> {
+pub fn decrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     let mut decryptor: Box<symmetriccipher::Decryptor> = aes::cbc_decryptor(
             aes::KeySize::KeySize256,
             key,
