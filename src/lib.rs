@@ -140,12 +140,8 @@ impl BackupManager {
         let mut file = try!(File::open(&self.database_path).map_err(io_to_bonzo));
         let bytes = try!(file.read_to_end().map_err(io_to_bonzo));
         let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice()).map_err(crypto_to_bonzo));
-        
-        let mut new_index = self.backup_path.clone();
-        new_index.push("index-new");
-        
-        let mut index = self.backup_path.clone();
-        index.push("index");
+        let new_index = self.backup_path.join("index-new");
+        let index = self.backup_path.join("index");
         
         try!(write_to_disk(&new_index, encrypted_bytes.as_slice()).map_err(io_to_bonzo));
         try!(copy(&new_index, &index).map_err(io_to_bonzo));
@@ -268,15 +264,12 @@ fn open_connection(path: &Path) -> BonzoResult<SqliteConnection> {
 }
 
 fn block_output_path(base_path: &Path, hash: &str) -> Path {
-    let mut path = base_path.clone();
-    path.push(hash[0..2]);
+    let path = base_path.join(hash[0..2]);
     
     // ignore error - it most likely already exists.
     mkdir_recursive(&path, std::io::FilePermission::all());
     
-    path.push(hash);
-    
-    path
+    path.join(hash)
 }
 
 fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {

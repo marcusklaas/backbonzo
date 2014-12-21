@@ -41,10 +41,8 @@ fn main() {
     
     let source_path = Path::new(args.flag_source);
     let backup_path = Path::new(args.flag_destination);
+    let database_path = source_path.join(DATABASE_FILENAME);
     let block_bytes = 1000 * 1000 * args.flag_blocksize;
-    
-    let mut database_path = source_path.clone();
-    database_path.push(DATABASE_FILENAME);
 
     let result = match args.arg_OPERATION {
         Operation::Init    => {
