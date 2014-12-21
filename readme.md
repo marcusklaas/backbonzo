@@ -34,7 +34,8 @@ priority todo list
 - [ ] add clean up command
 - [ ] deflate blocks before encryption
 - [ ] add tests
-- [x] check that encryption passwords is consistent
+- [x] check that encryption passwords are consistent
+- [ ] handle error juggling by implementing fromError trait for BonzoError
 
 build
 -----
