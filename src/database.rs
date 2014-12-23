@@ -237,6 +237,7 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
             id           INTEGER PRIMARY KEY,
             hash         TEXT NOT NULL
         );",
+        "CREATE INDEX file_hash_index on file (hash)",
         "CREATE TABLE alias (
             id           INTEGER PRIMARY KEY,
             directory_id INTEGER,
@@ -250,6 +251,7 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
             id           INTEGER PRIMARY KEY,
             hash         TEXT NOT NULL
         );",
+        "CREATE INDEX block_hash_index on block (hash)",
         "CREATE TABLE fileblock (
             id           INTEGER PRIMARY KEY,
             file_id      INTEGER NOT NULL,
