@@ -29,7 +29,7 @@ priority todo list
 - [x] test correctness and reversibility of encryption
 - [x] export index and config
 - [x] implement total decryption command with timestamp
-- [ ] split file writing and encryption to different threads
+- [x] split file writing and encryption to different threads
 - [ ] implement partial decryption command
 - [ ] add clean up command
 - [ ] deflate blocks before encryption
@@ -37,6 +37,8 @@ priority todo list
 - [x] check that encryption passwords are consistent
 - [x] handle error juggling by implementing fromError trait for BonzoError
 - [ ] use a random initialization vector for each block
+- [ ] implement simple logging
+- [ ] add security concerns to readme
 
 build
 -----

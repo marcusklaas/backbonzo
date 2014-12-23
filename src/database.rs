@@ -124,7 +124,7 @@ fn alias_to_file(connection: &SqliteConnection, alias_id: uint) -> Option<(uint,
 }
 
 fn get_file_block_list(connection: &SqliteConnection, file_id: uint) -> SqliteResult<Box<[uint]>> {
-    let mut statement = try!(connection.prepare("SELECT id FROM fileblock WHERE file_id = $1;"));
+    let mut statement = try!(connection.prepare("SELECT block_id FROM fileblock WHERE file_id = $1;"));
     let mut blocks = try!(statement.query(&[&(file_id as i64)]));
     let mut block_id_list = Vec::new();
 
@@ -162,7 +162,9 @@ pub fn persist_file(connection: &SqliteConnection, directory: Directory, filenam
 }
 
 pub fn persist_block(connection: &SqliteConnection, hash: &str) -> SqliteResult<uint> {
-    connection.execute("INSERT INTO block (hash) VALUES ($1);", &[&hash])
+    try!(connection.execute("INSERT INTO block (hash) VALUES ($1);", &[&hash]));
+
+    Ok(connection.last_insert_rowid() as uint)
 }
 
 pub fn file_known(connection: &SqliteConnection, hash: &str) -> bool {
@@ -197,7 +199,6 @@ pub fn get_directory(connection: &SqliteConnection, parent: Directory, name: &st
         Directory::Child(id) => Some(id as i64)
     };
 
-    // TODO: escape name!
     let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
     let directory_id: Option<i64> = connection.query_row(select_query, &[&name, &parent_id], |row| row.get(0));
     

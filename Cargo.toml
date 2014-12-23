@@ -9,7 +9,6 @@ name = "backbonzo"
 
 [dependencies.rusqlite]
 git = "https://github.com/marcusklaas/rusqlite.git"
-rev = "242d9469656e46d3b215ecc222dd34256c705b83"
 
 [dependencies]
 docopt = "*"

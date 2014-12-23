@@ -7,8 +7,11 @@ use std::io::{IoError, IoResult, TempDir};
 use std::io::fs::{unlink, copy, readdir, File, PathExtensions, mkdir_recursive};
 use std::error::FromError;
 use std::path::Path;
-use rusqlite::{SqliteConnection, SqliteError};
+use rusqlite::{SqliteConnection, SqliteError, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use rust_crypto::symmetriccipher::SymmetricCipherError;
+use std::thread::Thread;
+use std::comm::sync_channel;
+use std::collections::RingBuf;
 
 mod database;
 mod crypto;
@@ -69,6 +72,30 @@ enum Directory {
     Child(uint)
 }
 
+enum FileInstruction {
+    NewBlock(FileBlock),
+    Complete(FileComplete),
+    Error(BonzoError),
+    Done
+}
+
+struct FileBlock {
+    pub bytes: Vec<u8>,
+    pub hash: String
+}
+
+// okay this is kinda complex but here's how the block_id_list works. known blocks
+// are represented by Some(id), and new blocks are represented by None as we don't
+// known the id in the thread that does the encryption. the handling thread needs
+// to keep track of the ids of the new blocks since the last completed file and
+// replace them (in the right order!)
+struct FileComplete {
+    pub filename: String,
+    pub hash: String,
+    pub directory: Directory,
+    pub block_id_list: Vec<Option<uint>>
+}
+
 pub struct BackupManager {
     connection: SqliteConnection,
     database_path: Path,
@@ -98,12 +125,73 @@ impl BackupManager {
         })
     }
 
-    pub fn update(&self) -> BonzoResult<()> {
+    pub fn update(&mut self) -> BonzoResult<()> {
         try!(self.check_key());
 
-        try!(self.export_directory(&self.source_path, Directory::Root));
-    
-        self.export_index()
+        let (tx, rx) = sync_channel::<FileInstruction>(5);
+
+        let key = self.encryption_key.clone();
+        let path = self.database_path.clone();
+        let block_size = self.block_size;
+        let source_path = self.source_path.clone();
+
+        /* spawn thread */
+        Thread::spawn(move|| {
+            let exporter = match ExportBlockSender::new(path, key, block_size, tx.clone()) {
+                Ok(expo) => expo,
+                Err(e)   => {
+                    tx.send(FileInstruction::Error(e));
+                    return ();
+                }
+            };       
+
+            tx.send(match exporter.export_directory(&source_path, Directory::Root) {
+                Ok(..) => FileInstruction::Done,
+                Err(e) => FileInstruction::Error(e)
+            });
+        }).detach();
+
+        let mut id_queue: RingBuf<uint> = RingBuf::new();
+
+        /* phew! glad that is over. now we listen to thread */
+        loop {
+            match rx.recv() {
+                FileInstruction::Done     => break,
+                FileInstruction::Error(e) => return Err(e),
+                FileInstruction::NewBlock(block) => {
+                    let path = try!(block_output_path(&self.backup_path, block.hash.as_slice()));
+            
+                    try!(write_to_disk(&path, block.bytes.as_slice()));
+        
+                    let id = try!(database::persist_block(&self.connection, block.hash.as_slice()));
+
+                    id_queue.push_back(id);
+                },
+                FileInstruction::Complete(file) => {
+                    let mut real_id_list = Vec::new();
+
+                    for id in file.block_id_list.iter() {
+                        match *id {
+                            Some(i) => real_id_list.push(i),
+                            None    => match id_queue.pop_front() {
+                                Some(i) => real_id_list.push(i),
+                                None    => return Err(BonzoError::Other(format!("Block buffer is empty")))
+                            }
+                        }
+                    }
+
+                    try!(database::persist_file(
+                        &self.connection,
+                        file.directory,
+                        file.filename.as_slice(),
+                        file.hash.as_slice(),
+                        real_id_list.as_slice()
+                    ));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn restore(&self, timestamp: u64) -> BonzoResult<()> {
@@ -117,27 +205,21 @@ impl BackupManager {
     }
 
     pub fn restore_file(&self, path: &Path, block_list: &[uint]) -> BonzoResult<()> {
-        // create output directory
         let mut file_directory = path.clone();
         file_directory.pop();
         try!(mkdir_recursive(&file_directory, std::io::FilePermission::all()));
         
-        // open file
         let mut file = try!(File::create(path));
 
         for block_id in block_list.iter() {
-            // get hash
             let hash = database::block_hash_from_id(&self.connection, *block_id);
 
-            // open block
             let block_path = try!(block_output_path(&self.backup_path, hash.as_slice()));
             let mut block_file = try!(File::open(&block_path));
             let bytes = try!(block_file.read_to_end());
 
-            // decrypt block
             let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice()));
 
-            // write to file
             try!(file.write(decrypted_bytes.as_slice()));
             try!(file.fsync());
         }
@@ -155,7 +237,9 @@ impl BackupManager {
         }
     }
 
-    fn export_index(&self) -> BonzoResult<()> {
+    fn export_index(self) -> BonzoResult<()> {
+        try!(self.connection.close());
+        
         let mut file = try!(File::open(&self.database_path));
         let bytes = try!(file.read_to_end());
         let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice()));
@@ -167,8 +251,30 @@ impl BackupManager {
         
         Ok(try!(unlink(&new_index)))
     }
+}
 
-    fn export_directory(&self, path: &Path, directory: Directory) -> BonzoResult<()> {
+struct ExportBlockSender {
+    connection: SqliteConnection,
+    encryption_key: Vec<u8>,
+    block_size: uint,
+    sender: SyncSender<FileInstruction>
+}
+
+impl ExportBlockSender {
+    pub fn new(database_path: Path, encryption_key: Vec<u8>, block_size: uint, sender: SyncSender<FileInstruction>) -> BonzoResult<ExportBlockSender> {
+        if !database_path.exists() {
+            return Err(BonzoError::Other(format!("Database file not found"))); 
+        }
+
+        Ok(ExportBlockSender {
+            connection: try!(open_connection(&database_path)),
+            encryption_key: encryption_key,
+            block_size: block_size,
+            sender: sender
+        })
+    }
+
+    pub fn export_directory(&self, path: &Path, directory: Directory) -> BonzoResult<()> {
         let content_list = try!(readdir(path));
         let (directory_list, file_list) = content_list.partition(|p| p.is_dir());
         
@@ -188,7 +294,7 @@ impl BackupManager {
     }
 
     fn export_file(&self, directory: Directory, path: &Path) -> BonzoResult<()> {
-        let hash: String = try!(crypto::hash_file(path));
+        let hash = try!(crypto::hash_file(path));
         
         if database::file_known(&self.connection, hash.as_slice()) {
             return Ok(());
@@ -205,30 +311,28 @@ impl BackupManager {
         }
         
         let filename_bytes = try!(path.filename().ok_or(BonzoError::Other(format!("Could not convert path to string"))));
-        let filename = String::from_utf8_lossy(filename_bytes).into_owned();
-        
-        Ok(try!(database::persist_file(
-            &self.connection,
-            directory,
-            filename.as_slice(),
-            hash.as_slice(),
-            block_id_list.as_slice()
-        )))
+
+        Ok(self.sender.send(FileInstruction::Complete(FileComplete {
+            filename: String::from_utf8_lossy(filename_bytes).into_owned(),
+            hash: hash,
+            directory: directory,
+            block_id_list: block_id_list
+        })))
     }
 
-    fn export_block(&self, block: &[u8]) -> BonzoResult<uint> {
+    pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<uint>> {
         let hash = crypto::hash_block(block);
 
         if let Some(id) = database::block_id_from_hash(&self.connection, hash.as_slice()) {
-            return Ok(id)
+            return Ok(Some(id))
         }
-        
-        let bytes: Vec<u8> = try!(crypto::encrypt_block(block, self.encryption_key.as_slice()));
-        let path = try!(block_output_path(&self.backup_path, hash.as_slice()));
-            
-        try!(write_to_disk(&path, bytes.as_slice()));
-        
-        Ok(try!(database::persist_block(&self.connection, hash.as_slice())))
+
+        self.sender.send(FileInstruction::NewBlock(FileBlock {
+            bytes: try!(crypto::encrypt_block(block, self.encryption_key.as_slice())),
+            hash: hash
+        }));
+
+        Ok(None)
     }
 }
 
@@ -246,9 +350,10 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
 }
 
 pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String) -> BonzoResult<()> {
-    let manager = try!(BackupManager::new(database_path, source_path, backup_path, block_bytes, password));
+    let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, block_bytes, password));
             
-    manager.update()
+    try!(manager.update());
+    manager.export_index()
 }
 
 pub fn restore(source_path: Path, backup_path: Path, block_bytes: uint, password: String, timestamp: u64) -> BonzoResult<()> {
@@ -278,7 +383,7 @@ fn open_connection(path: &Path) -> BonzoResult<SqliteConnection> {
     let error = BonzoError::Other(format!("Couldn't convert database path to string"));
     let filename = try!(path.as_str().ok_or(error)); 
 
-    Ok(try!(SqliteConnection::open(filename)))
+    Ok(try!(SqliteConnection::open_with_flags(filename, SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULL_MUTEX)))
 }
 
 fn block_output_path(base_path: &Path, hash: &str) -> IoResult<Path> {
