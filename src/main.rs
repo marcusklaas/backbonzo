@@ -22,9 +22,10 @@ Operations:
 Options:
   -s --source=<source>      Source directory [default: ./].
   -d --destination=<dest>   Backup directory [default: /tmp/backbonzo/].
-  -k --key=<key>            Encryption key. 
+  -k --key=<key>            Encryption key.
+  -t --timeout=<seconds>    Maximum execution time in seconds [default: 0].
   -b --blocksize=<bs>       Size of blocks in megabytes [default: 1].
-", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String);
+", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String, flag_timeout: uint);
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 
@@ -41,11 +42,15 @@ fn main() {
     let backup_path = Path::new(args.flag_destination);
     let database_path = source_path.join(DATABASE_FILENAME);
     let block_bytes = 1000 * 1000 * args.flag_blocksize;
+    let deadline = time::now_utc() + match args.flag_timeout {
+        0    => Duration::years(1),
+        secs => Duration::seconds(secs)
+    };
 
     let result = match args.arg_OPERATION {
         Operation::Init    => init(&database_path, args.flag_key),
         Operation::Restore => restore(source_path, backup_path, block_bytes, args.flag_key, time::get_time().sec as u64),
-        Operation::Backup  => backup(database_path, source_path, backup_path, block_bytes, args.flag_key)
+        Operation::Backup  => backup(database_path, source_path, backup_path, block_bytes, args.flag_key, deadline)
     };
     
     handle_result(result);

@@ -2,6 +2,7 @@ extern crate time;
 
 use super::rusqlite::{SqliteResult, SqliteConnection};
 use super::Directory;
+use serialize::base64::{STANDARD, ToBase64};
 
 pub struct Aliases<'a> {
     connection: &'a SqliteConnection,
@@ -161,8 +162,13 @@ pub fn persist_file(connection: &SqliteConnection, directory: Directory, filenam
     transaction.commit()
 }
 
-pub fn persist_block(connection: &SqliteConnection, hash: &str) -> SqliteResult<uint> {
-    try!(connection.execute("INSERT INTO block (hash) VALUES ($1);", &[&hash]));
+pub fn persist_block(connection: &SqliteConnection, hash: &str, iv: &[u8]) -> SqliteResult<uint> {
+    let iv_hex = iv.to_base64(STANDARD);
+    
+    try!(connection.execute(
+        "INSERT INTO block (hash, iv_hex) VALUES ($1, $2);",
+        &[&hash, &iv_hex]
+    ));
 
     Ok(connection.last_insert_rowid() as uint)
 }
@@ -175,11 +181,12 @@ pub fn file_known(connection: &SqliteConnection, hash: &str) -> bool {
     )
 }
 
-pub fn block_hash_from_id(connection: &SqliteConnection, id: uint) -> String {
+// FIXME: properly propagate errors
+pub fn block_from_id(connection: &SqliteConnection, id: uint) -> (String, Vec<u8>) {
     connection.query_row(
-        "SELECT hash FROM block WHERE id = $1;",
+        "SELECT hash, iv_hex FROM block WHERE id = $1;",
         &[&(id as i64)],
-        |row| row.get(0)
+        |row| (row.get(0), row.get(1).from_hex().ok().unwrap())
     )
 }
 
@@ -249,7 +256,8 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
         );",
         "CREATE TABLE block (
             id           INTEGER PRIMARY KEY,
-            hash         TEXT NOT NULL
+            hash         TEXT NOT NULL,
+            iv_hex       TEXT NOT NULL,
         );",
         "CREATE INDEX block_hash_index on block (hash)",
         "CREATE TABLE fileblock (

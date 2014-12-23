@@ -60,14 +60,8 @@ pub fn hash_block(block: &[u8]) -> String {
     hasher.result_str()
 }
 
-pub fn encrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
-    let mut encryptor: Box<symmetriccipher::Encryptor> = aes::cbc_encryptor(
-            aes::KeySize::KeySize256,
-            key,
-            &[0, ..16],
-            PkcsPadding
-    );
-
+pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
+    let mut encryptor = aes::cbc_encryptor(aes::KeySize::KeySize256, key, iv, PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0, ..4096];
     let mut read_buffer = buffer::RefReadBuffer::new(block);
@@ -78,21 +72,15 @@ pub fn encrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, SymmetricCiphe
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
         match result {
             buffer::BufferResult::BufferUnderflow => break,
-            buffer::BufferResult::BufferOverflow => { }
+            buffer::BufferResult::BufferOverflow  => ()
         }
     }
 
     Ok(final_result)
 } 
 
-pub fn decrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
-    let mut decryptor: Box<symmetriccipher::Decryptor> = aes::cbc_decryptor(
-            aes::KeySize::KeySize256,
-            key,
-            &[0, ..16],
-            PkcsPadding
-    );
-
+pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
+    let mut decryptor = aes::cbc_decryptor(aes::KeySize::KeySize256, key, iv, PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0, ..4096];
     let mut read_buffer = buffer::RefReadBuffer::new(block);
@@ -103,7 +91,7 @@ pub fn decrypt_block(block: &[u8], key: &[u8]) -> Result<Vec<u8>, SymmetricCiphe
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
         match result {
             buffer::BufferResult::BufferUnderflow => break,
-            buffer::BufferResult::BufferOverflow => { }
+            buffer::BufferResult::BufferOverflow  => ()
         }
     }
 

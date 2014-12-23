@@ -12,6 +12,7 @@ use rust_crypto::symmetriccipher::SymmetricCipherError;
 use std::thread::Thread;
 use std::comm::sync_channel;
 use std::collections::RingBuf;
+use std::rand::{Rng, OsRng};
 
 mod database;
 mod crypto;
@@ -81,6 +82,7 @@ enum FileInstruction {
 
 struct FileBlock {
     pub bytes: Vec<u8>,
+    pub iv: Vec<u8>,
     pub hash: String
 }
 
@@ -125,7 +127,7 @@ impl BackupManager {
         })
     }
 
-    pub fn update(&mut self) -> BonzoResult<()> {
+    pub fn update(&mut self, deadline: time::Tm) -> BonzoResult<()> {
         try!(self.check_key());
 
         let (tx, rx) = sync_channel::<FileInstruction>(5);
@@ -155,6 +157,10 @@ impl BackupManager {
 
         /* phew! glad that is over. now we listen to thread */
         loop {
+            if deadline.cmp(time::now_utc()) != Ordering::Greater {
+                break;
+            }
+            
             match rx.recv() {
                 FileInstruction::Done     => break,
                 FileInstruction::Error(e) => return Err(e),
@@ -163,7 +169,7 @@ impl BackupManager {
             
                     try!(write_to_disk(&path, block.bytes.as_slice()));
         
-                    let id = try!(database::persist_block(&self.connection, block.hash.as_slice()));
+                    let id = try!(database::persist_block(&self.connection, block.hash.as_slice(), block.iv.as_slice()));
 
                     id_queue.push_back(id);
                 },
@@ -212,13 +218,13 @@ impl BackupManager {
         let mut file = try!(File::create(path));
 
         for block_id in block_list.iter() {
-            let hash = database::block_hash_from_id(&self.connection, *block_id);
+            let (hash, iv) = database::block_from_id(&self.connection, *block_id);
 
             let block_path = try!(block_output_path(&self.backup_path, hash.as_slice()));
             let mut block_file = try!(File::open(&block_path));
             let bytes = try!(block_file.read_to_end());
 
-            let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice()));
+            let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice()));
 
             try!(file.write(decrypted_bytes.as_slice()));
             try!(file.fsync());
@@ -327,8 +333,14 @@ impl ExportBlockSender {
             return Ok(Some(id))
         }
 
+        let mut iv = Vec::from_elem::<u8>(16, 0);
+        let mut rng = try!(OsRng::new());
+
+        rng.fill_bytes(iv.as_mut_slice());
+
         self.sender.send(FileInstruction::NewBlock(FileBlock {
-            bytes: try!(crypto::encrypt_block(block, self.encryption_key.as_slice())),
+            bytes: try!(crypto::encrypt_block(block, self.encryption_key.as_slice(), iv.as_slice())),
+            iv: iv,
             hash: hash
         }));
 
@@ -349,10 +361,10 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
     Ok(try!(database::set_key(&connection, "password", hash.as_slice()).map(|_| ())))
 }
 
-pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String) -> BonzoResult<()> {
+pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String, deadline: Tm) -> BonzoResult<()> {
     let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, block_bytes, password));
             
-    try!(manager.update());
+    try!(manager.update(deadline));
     manager.export_index()
 }
 

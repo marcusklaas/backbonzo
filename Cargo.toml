@@ -7,10 +7,8 @@ authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 [lib]
 name = "backbonzo"
 
-[dependencies.rusqlite]
-git = "https://github.com/marcusklaas/rusqlite.git"
-
 [dependencies]
+rusqlite = "*"
 docopt = "*"
 docopt_macros = "*"
 rust-crypto = "*"
