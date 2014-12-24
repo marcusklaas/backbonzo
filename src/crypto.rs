@@ -68,6 +68,8 @@ pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
     }
 
+    final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+
     Ok(final_result)
 } 
 
@@ -82,24 +84,28 @@ pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
     }
 
+    final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+
     Ok(final_result)
 }
 
 #[cfg(test)]
 mod test {
+    use std::rand::{Rng, OsRng};
+    
     #[test]
     fn aes_encryption_decryption() {
-        let block = [13u8, ..(1024*52)];
-        let key = [0, ..32];
-        let iv = [0, ..16];
-
-        let encrypted_bytes: Vec<u8> = super::encrypt_block(&block, &key, &iv).ok().unwrap();
-        let decrypted_bytes = super::decrypt_block(encrypted_bytes.as_slice(), &key, &iv).ok().unwrap();
+        let message = "Hello World!";
+        let mut key: [u8, ..32] = [0, ..32];
+        let mut iv: [u8, ..16] = [0, ..16];
+        let mut rng = OsRng::new().ok().unwrap();
         
-        assert_eq!(block.len(), decrypted_bytes.len());
+        rng.fill_bytes(&mut key);
+        rng.fill_bytes(&mut iv);
 
-        for (x, y) in block.iter().zip(decrypted_bytes.as_slice().iter()) {
-            assert_eq!(*x, *y);
-        }
+        let encrypted_data = super::encrypt_block(message.as_bytes(), &key, &iv).ok().unwrap();
+        let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key, &iv).ok().unwrap();
+
+        assert!(message.as_bytes() == decrypted_data.as_slice());
     }
 }
