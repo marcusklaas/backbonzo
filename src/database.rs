@@ -20,7 +20,7 @@ impl<'a> Aliases<'a> {
             Directory::Root      => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id IS NULL AND timestamp <= $1 GROUP BY name;"))
         };
 
-        let mut rows = match directory {
+        let rows = match directory {
             Directory::Child(id) => try!(row_statement.query(&[&(id as i64), &(timestamp as i64)])),
             Directory::Root      => try!(row_statement.query(&[&(timestamp as i64)]))
         };
@@ -30,26 +30,17 @@ impl<'a> Aliases<'a> {
             Directory::Root      => try!(connection.prepare("SELECT id FROM directory WHERE parent_id IS NULL;"))
         };
 
-        let mut directories = match directory {
+        let directories = match directory {
             Directory::Child(id) => try!(directory_statement.query(&[&(id as i64)])),
             Directory::Root      => try!(directory_statement.query(&[]))
         };
 
-        let mut alias_id_list = Vec::new();
-        let mut directory_id_list = Vec::new();
+        let alias_id_list: Vec<uint> = try!(rows.map(|row| row.map(|r| r.get::<i64>(0) as uint)).collect()); // TODO: this collect should be unnecessary
+        let directory_id_list: Vec<uint> = try!(directories.map(|dir| dir.map(|d| d.get::<i64>(0) as uint)).collect()); // FIXME: duplicate code!
 
-        for row in rows {
-            alias_id_list.push(try!(row).get::<i64>(0) as uint);
-        }
-        
-        for directory in directories {
-            directory_id_list.push(try!(directory).get::<i64>(0) as uint);
-        }
-
-        let file_list = alias_id_list.iter()
-            .map(|id| alias_to_file(connection, *id))
-            .filter(|option| option.is_some())
-            .map(|option| option.unwrap())
+        let file_list: Vec<(uint, String)> = alias_id_list
+            .iter()
+            .filter_map(|id| alias_to_file(connection, *id))
             .collect();
         
         Ok(Aliases {
@@ -67,11 +58,9 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
     fn next(&mut self) -> Option<(Path, Box<[uint]>)> {
         // return file from child directory
         loop {
-            match self.subdirectory {
-                None              => (),
-                Some(ref mut dir) => match dir.next() {
-                    None        => (),
-                    Some(alias) => return Some(alias)
+            if let Some(ref mut dir) = self.subdirectory {
+                if let Some(alias) = dir.next() {
+                    return Some(alias);
                 }
             }
 
@@ -87,6 +76,7 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
             }
         }
 
+        // return file from current directory
         self.file_list.pop().and_then(|(id, name)|
             get_file_block_list(self.connection, id).ok().map(|boxed_slice|
                 (self.path.join(name.clone()), boxed_slice)
@@ -111,15 +101,12 @@ fn alias_to_file(connection: &SqliteConnection, alias_id: uint) -> Option<(uint,
 }
 
 fn get_file_block_list(connection: &SqliteConnection, file_id: uint) -> SqliteResult<Box<[uint]>> {
-    let mut statement = try!(connection.prepare("SELECT block_id FROM fileblock WHERE file_id = $1;"));
-    let mut blocks = try!(statement.query(&[&(file_id as i64)]));
-    let mut block_id_list = Vec::new();
-
-    for block in blocks {
-        block_id_list.push(try!(block).get::<i64>(0) as uint);
-    }
-
-    Ok(block_id_list.into_boxed_slice())
+    let mut statement = try!(connection.prepare("SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;"));
+    
+    try!(statement.query(&[&(file_id as i64)]))
+        .map(|row_result| row_result.map(|row| row.get::<i64>(0) as uint))
+        .collect::<SqliteResult<Vec<uint>>>()
+        .map(|vec| vec.into_boxed_slice())
 }
 
 pub fn persist_file(connection: &SqliteConnection, directory: Directory, filename: &str, hash: &str, block_id_list: &[uint]) -> SqliteResult<()> {
@@ -149,11 +136,9 @@ pub fn persist_file(connection: &SqliteConnection, directory: Directory, filenam
 }
 
 pub fn persist_block(connection: &SqliteConnection, hash: &str, iv: &[u8]) -> SqliteResult<uint> {
-    let iv_hex = iv.to_hex();
-    
     try!(connection.execute(
         "INSERT INTO block (hash, iv_hex) VALUES ($1, $2);",
-        &[&hash, &iv_hex.as_slice()]
+        &[&hash, &iv.to_hex().as_slice()]
     ));
 
     Ok(connection.last_insert_rowid() as uint)
@@ -171,25 +156,19 @@ pub fn block_from_id(connection: &SqliteConnection, id: uint) -> BonzoResult<(St
     connection.query_row(
         "SELECT hash, iv_hex FROM block WHERE id = $1;",
         &[&(id as i64)],
-        |row| {
-            let iv_hex: String = row.get(1);
-
-            match iv_hex.as_slice().from_hex().ok() {
-                Some(vec) => Ok((row.get(0), vec)),
-                None      => Err(BonzoError::Other(format!("Couldn't parse hex: {}", iv_hex)))
-            }
+        |row| match row.get::<String>(1).as_slice().from_hex() {
+            Ok(vec) => Ok((row.get(0), vec)),
+            Err(..) => Err(BonzoError::Other(format!("Couldn't parse hex")))
         }
     )
 }
 
 pub fn block_id_from_hash(connection: &SqliteConnection, hash: &str) -> Option<uint> {
-    let result: Option<i64> = connection.query_row(
+    connection.query_row::<Option<i64>>(
         "SELECT SUM(id) FROM block WHERE hash = $1;",
         &[&hash],
         |row| row.get(0)
-    );
-
-    result.map(|signed| signed as uint)
+    ).map(|signed| signed as uint)
 }
 
 pub fn get_directory(connection: &SqliteConnection, parent: Directory, name: &str) -> SqliteResult<Directory> {
@@ -208,7 +187,7 @@ pub fn get_directory(connection: &SqliteConnection, parent: Directory, name: &st
     let insert_query = "INSERT INTO directory (parent_id, name) VALUES ($1, $2);";
     
     connection.execute(insert_query, &[&parent_id, &name])
-        .map(|_| Directory::Child(connection.last_insert_rowid() as uint))
+        .and(Ok(Directory::Child(connection.last_insert_rowid() as uint)))
 }
 
 pub fn set_key(connection: &SqliteConnection, key: &str, value: &str) -> SqliteResult<uint> {

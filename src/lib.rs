@@ -189,13 +189,9 @@ impl BackupManager {
     }
 
     pub fn restore(&self, timestamp: u64) -> BonzoResult<()> {
-        let mut aliases = try!(database::Aliases::new(&self.connection, self.source_path.clone(), Directory::Root, timestamp));
-
-        for (path, block_list) in aliases {
-            try!(self.restore_file(&path, block_list.as_slice()));
-        }
-
-        Ok(())
+        try!(database::Aliases::new(&self.connection, self.source_path.clone(), Directory::Root, timestamp))
+            .map(|(path, block_list)| self.restore_file(&path, block_list.as_slice()))
+            .fold(Ok(()), |a, b| a.and(b))
     }
 
     pub fn restore_file(&self, path: &Path, block_list: &[uint]) -> BonzoResult<()> {
@@ -207,11 +203,9 @@ impl BackupManager {
 
         for block_id in block_list.iter() {
             let (hash, iv) = try!(database::block_from_id(&self.connection, *block_id));
-
             let block_path = try!(block_output_path(&self.backup_path, hash.as_slice()));
             let mut block_file = try!(File::open(&block_path));
             let bytes = try!(block_file.read_to_end());
-
             let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice()));
 
             try!(file.write(decrypted_bytes.as_slice()));
@@ -277,7 +271,7 @@ impl ExportBlockSender {
                 Err(..)    => Equal,
                 Ok(a_stat) => match b.stat() {
                     Err(..)    => Equal,
-                    Ok(b_stat) => a_stat.modified.cmp(&b_stat.modified).reverse()
+                    Ok(b_stat) => b_stat.modified.cmp(&a_stat.modified)
                 }
             }
         );
@@ -377,11 +371,9 @@ pub fn restore(source_path: Path, backup_path: Path, block_bytes: uint, password
 fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoResult<Path> {
     let encrypted_index_path = backup_path.join("index");
     let decrypted_index_path = temp_dir.join("index.db3");
-
     let mut file = try!(File::open(&encrypted_index_path));
     let contents = try!(file.read_to_end());
     let iv = [0u8, ..16];
-
     let key = crypto::derive_key(password.as_slice());
     let decrypted_content = try!(crypto::decrypt_block(contents[], key[], &iv));
 
