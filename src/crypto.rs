@@ -104,9 +104,10 @@ mod test {
     fn aes_encryption_decryption() {
         let block = [13u8, ..(1024*52)];
         let key = [0, ..32];
+        let iv = [0, ..16];
 
-        let encrypted_bytes: Vec<u8> = super::encrypt_block(&block, &key).ok().unwrap();
-        let decrypted_bytes = super::decrypt_block(encrypted_bytes.as_slice(), &key).ok().unwrap();
+        let encrypted_bytes: Vec<u8> = super::encrypt_block(&block, &key, &iv).ok().unwrap();
+        let decrypted_bytes = super::decrypt_block(encrypted_bytes.as_slice(), &key, &iv).ok().unwrap();
         
         assert_eq!(block.len(), decrypted_bytes.len());
 
