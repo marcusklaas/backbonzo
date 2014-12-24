@@ -42,11 +42,8 @@ pub fn hash_file(path: &Path) -> IoResult<String> {
     let mut hasher = Sha256::new();
     let mut blocks = try!(Blocks::from_path(path, 1024));
     
-    loop {
-        match blocks.next() {
-            Some(slice) => hasher.input(slice),
-            None        => break
-        }
+    while let Some(slice) = blocks.next() {
+        hasher.input(slice);
     }
     
     Ok(hasher.result_str())
@@ -67,13 +64,8 @@ pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
     let mut read_buffer = buffer::RefReadBuffer::new(block);
     let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
 
-    loop {
-        let result = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true));
+    while let buffer::BufferResult::BufferOverflow = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true)) {
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
-        match result {
-            buffer::BufferResult::BufferUnderflow => break,
-            buffer::BufferResult::BufferOverflow  => ()
-        }
     }
 
     Ok(final_result)
@@ -86,13 +78,8 @@ pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
     let mut read_buffer = buffer::RefReadBuffer::new(block);
     let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
 
-    loop {
-        let result = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true));
+    while let buffer::BufferResult::BufferOverflow = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true)) {
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
-        match result {
-            buffer::BufferResult::BufferUnderflow => break,
-            buffer::BufferResult::BufferOverflow  => ()
-        }
     }
 
     Ok(final_result)

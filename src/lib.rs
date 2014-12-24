@@ -139,20 +139,12 @@ impl BackupManager {
         let block_size = self.block_size;
         let source_path = self.source_path.clone();
 
-        Thread::spawn(move|| {
-            let exporter = match ExportBlockSender::new(path, key, block_size, tx.clone()) {
-                Ok(expo) => expo,
-                Err(e)   => {
-                    tx.send(FileInstruction::Error(e));
-                    return ();
-                }
-            };       
-
-            tx.send(match exporter.export_directory(&source_path, Directory::Root) {
+        Thread::spawn(move||
+            tx.send(match ExportBlockSender::new(path, key, block_size, tx.clone()).and_then(|exporter| exporter.export_directory(&source_path, Directory::Root)) {
                 Ok(..) => FileInstruction::Done,
                 Err(e) => FileInstruction::Error(e)
-            });
-        }).detach();
+            })
+        ).detach();
 
         let mut id_queue: RingBuf<uint> = RingBuf::new();
 
@@ -364,7 +356,7 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
     
     try!(database::setup(&connection));
 
-    Ok(try!(database::set_key(&connection, "password", hash.as_slice()).map(|_| ())))
+    Ok(try!(database::set_key(&connection, "password", hash.as_slice()).map(|_|())))
 }
 
 pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String, deadline: time::Tm) -> BonzoResult<()> {
