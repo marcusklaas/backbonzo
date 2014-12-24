@@ -284,19 +284,29 @@ impl ExportBlockSender {
     }
 
     pub fn export_directory(&self, path: &Path, directory: Directory) -> BonzoResult<()> {
-        let content_list = try!(readdir(path));
-        let (directory_list, file_list) = content_list.partition(|p| p.is_dir());
+        let mut content_list = try!(readdir(path));
+
+        content_list.sort_by(|a, b|
+            match a.stat() {
+                Err(..)    => Equal,
+                Ok(a_stat) => match b.stat() {
+                    Err(..)    => Equal,
+                    Ok(b_stat) => a_stat.modified.cmp(&b_stat.modified).reverse()
+                }
+            }
+        );
         
-        for file_path in file_list.iter() {
-            try!(self.export_file(directory, file_path));
-        }
-        
-        for directory_path in directory_list.iter() {
-            let relative_path = try!(directory_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
-            let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
-            let child_directory = try!(database::get_directory(&self.connection, directory, name));
-        
-            try!(self.export_directory(directory_path, child_directory));
+        for content_path in content_list.iter() {
+            if content_path.is_dir() {
+                let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
+                let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
+                let child_directory = try!(database::get_directory(&self.connection, directory, name));
+            
+                try!(self.export_directory(content_path, child_directory));
+            }
+            else {
+                try!(self.export_file(directory, content_path));
+            }
         }
 
         Ok(())

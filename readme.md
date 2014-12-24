@@ -26,13 +26,14 @@ priority todo list
 - [ ] add security concerns to readme
 - [ ] add null alias for removed files
 - [ ] fix bug where helper thread sends on closed channel
-- [ ] when traversing filesystem, order by modification date
+- [ ] ignore files with alias more recent than last modification
 - [ ] deflate blocks before encryption
 - [ ] implement partial decryption command
 - [ ] take parameters/ read from configuration file
 - [ ] add tests
 - [ ] implement simple logging
 - [ ] add clean up command
+- [x] when traversing filesystem, order by modification date
 - [x] add timeout parameter
 - [x] use a random initialization vector for each block
 - [x] sort the error handling mess
