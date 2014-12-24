@@ -24,6 +24,7 @@ priority todo list
 
 
 - [ ] add security concerns to readme
+- [ ] add null alias for removed files
 - [ ] fix bug where helper thread sends on closed channel
 - [ ] when traversing filesystem, order by modification date
 - [ ] deflate blocks before encryption
