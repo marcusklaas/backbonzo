@@ -1,7 +1,6 @@
 use super::rusqlite::{SqliteResult, SqliteConnection};
 use super::Directory;
 use serialize::hex::{ToHex, FromHex};
-use super::time;
 use super::{BonzoResult, BonzoError};
 
 pub struct Aliases<'a> {
@@ -109,7 +108,7 @@ fn get_file_block_list(connection: &SqliteConnection, file_id: uint) -> SqliteRe
         .map(|vec| vec.into_boxed_slice())
 }
 
-pub fn persist_file(connection: &SqliteConnection, directory: Directory, filename: &str, hash: &str, block_id_list: &[uint]) -> SqliteResult<()> {
+pub fn persist_file(connection: &SqliteConnection, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[uint]) -> SqliteResult<()> {
     let transaction = try!(connection.transaction());
 
     try!(connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
@@ -124,13 +123,8 @@ pub fn persist_file(connection: &SqliteConnection, directory: Directory, filenam
     }
     
     let alias_query = "INSERT INTO alias (directory_id, file_id, name, timestamp) VALUES ($1, $2, $3, $4);";
-    let timestamp = time::get_time().sec;
-    let directory_id: Option<i64> = match directory {
-        Directory::Root      => None,
-        Directory::Child(id) => Some(id as i64)
-    };
     
-    try!(connection.execute(alias_query, &[&directory_id, &(file_id as i64), &filename, &(timestamp as i64)]));
+    try!(connection.execute(alias_query, &[&directory.into_option(), &(file_id as i64), &filename, &(last_modified as i64)]));
 
     transaction.commit()
 }
@@ -150,6 +144,22 @@ pub fn file_known(connection: &SqliteConnection, hash: &str) -> bool {
         &[&hash],
         |row| row.get::<i64>(0) > 0
     )
+}
+
+/* TODO: we may want to further normalize database. otherwise, put some indices on these tables */
+pub fn alias_known(connection: &SqliteConnection, directory: Directory, filename: &str, timestamp: u64) -> bool {
+    match directory.into_option() {
+        Some(id) => connection.query_row(
+            "SELECT COUNT(id) FROM alias WHERE directory_id = $1 AND name = $2 AND timestamp >= $3;",
+            &[&id, &filename, &(timestamp as i64)],
+            |row| row.get::<i64>(0) > 0
+        ),
+        None => connection.query_row(
+            "SELECT COUNT(id) FROM alias WHERE directory_id IS NULL AND name = $2 AND timestamp >= $3;",
+            &[&filename, &(timestamp as i64)],
+            |row| row.get::<i64>(0) > 0
+        )
+    }
 }
 
 pub fn block_from_id(connection: &SqliteConnection, id: uint) -> BonzoResult<(String, Vec<u8>)> {
@@ -172,13 +182,18 @@ pub fn block_id_from_hash(connection: &SqliteConnection, hash: &str) -> Option<u
 }
 
 pub fn get_directory(connection: &SqliteConnection, parent: Directory, name: &str) -> SqliteResult<Directory> {
-    let parent_id: Option<i64> = match parent {
-        Directory::Root      => None,
-        Directory::Child(id) => Some(id as i64)
+    let parent_id = parent.into_option();
+    
+    let directory_id: Option<i64> = match parent_id {
+        Some(parent) => {
+            let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
+            connection.query_row(select_query, &[&name, &parent], |row| row.get(0))
+        },
+        None => {
+            let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id IS NULL;"; 
+            connection.query_row(select_query, &[&name], |row| row.get(0))
+        }
     };
-
-    let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
-    let directory_id: Option<i64> = connection.query_row(select_query, &[&name, &parent_id], |row| row.get(0));
     
     if directory_id.is_some() {
         return Ok(Directory::Child(directory_id.unwrap() as uint));

@@ -16,6 +16,8 @@ use std::comm::sync_channel;
 use std::collections::RingBuf;
 use std::rand::{Rng, OsRng};
 
+// FIXME: import crypto crate in the crypto module and re-export SymmetricCipherError there (or our own crypto error)
+
 mod database;
 mod crypto;
 
@@ -75,6 +77,15 @@ enum Directory {
     Child(uint)
 }
 
+impl Directory {
+    pub fn into_option(self) -> Option<i64> {
+        match self {
+            Directory::Root      => None,
+            Directory::Child(id) => Some(id as i64)
+        }
+    }
+}
+
 enum FileInstruction {
     NewBlock(FileBlock),
     Complete(FileComplete),
@@ -96,6 +107,7 @@ struct FileBlock {
 struct FileComplete {
     pub filename: String,
     pub hash: String,
+    pub last_modified: u64,
     pub directory: Directory,
     pub block_id_list: Vec<Option<uint>>
 }
@@ -179,6 +191,7 @@ impl BackupManager {
                         file.directory,
                         file.filename.as_slice(),
                         file.hash.as_slice(),
+                        file.last_modified,
                         real_id_list.as_slice()
                     ));
                 }
@@ -266,6 +279,8 @@ impl ExportBlockSender {
     pub fn export_directory(&self, path: &Path, directory: Directory) -> BonzoResult<()> {
         let mut content_list = try!(readdir(path));
 
+        /* FIXME: we're doing lots of stats this way. better to do them once, pair them
+         * with their paths and then sort those */
         content_list.sort_by(|a, b|
             match a.stat() {
                 Err(..)    => Equal,
@@ -293,6 +308,13 @@ impl ExportBlockSender {
     }
 
     fn export_file(&self, directory: Directory, path: &Path) -> BonzoResult<()> {
+        let filename = try!(path.filename_str().ok_or(BonzoError::Other(format!("Could not convert path to string"))));
+        let last_modified = try!(path.stat()).modified;
+
+        if database::alias_known(&self.connection, directory, filename, last_modified) {           
+            return Ok(());
+        }
+        
         let hash = try!(crypto::hash_file(path));
         
         if database::file_known(&self.connection, hash.as_slice()) {
@@ -306,11 +328,10 @@ impl ExportBlockSender {
             block_id_list.push(try!(self.export_block(slice)));
         }
         
-        let filename_bytes = try!(path.filename().ok_or(BonzoError::Other(format!("Could not convert path to string"))));
-
         self.sender.send_opt(FileInstruction::Complete(FileComplete {
-            filename: String::from_utf8_lossy(filename_bytes).into_owned(),
+            filename: String::from_str(filename),
             hash: hash,
+            last_modified: last_modified,
             directory: directory,
             block_id_list: block_id_list
         }));
