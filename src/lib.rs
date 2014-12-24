@@ -139,7 +139,6 @@ impl BackupManager {
         let block_size = self.block_size;
         let source_path = self.source_path.clone();
 
-        /* spawn thread */
         Thread::spawn(move|| {
             let exporter = match ExportBlockSender::new(path, key, block_size, tx.clone()) {
                 Ok(expo) => expo,
@@ -157,12 +156,7 @@ impl BackupManager {
 
         let mut id_queue: RingBuf<uint> = RingBuf::new();
 
-        /* phew! glad that is over. now we listen to thread */
-        loop {
-            if deadline.cmp(&time::now_utc()) != Ordering::Greater {
-                break;
-            }
-            
+        while deadline.cmp(&time::now_utc()) == Ordering::Greater {
             match rx.recv() {
                 FileInstruction::Done     => break,
                 FileInstruction::Error(e) => return Err(e),
@@ -322,21 +316,20 @@ impl ExportBlockSender {
         let mut blocks = try!(Blocks::from_path(path, self.block_size));
         let mut block_id_list = Vec::new();
         
-        loop {
-            match blocks.next() {
-                Some(slice) => block_id_list.push(try!(self.export_block(slice))),
-                None        => break
-            }
+        while let Some(slice) = blocks.next() {
+            block_id_list.push(try!(self.export_block(slice)));
         }
         
         let filename_bytes = try!(path.filename().ok_or(BonzoError::Other(format!("Could not convert path to string"))));
 
-        Ok(self.sender.send(FileInstruction::Complete(FileComplete {
+        self.sender.send_opt(FileInstruction::Complete(FileComplete {
             filename: String::from_utf8_lossy(filename_bytes).into_owned(),
             hash: hash,
             directory: directory,
             block_id_list: block_id_list
-        })))
+        }));
+
+        Ok(())
     }
 
     pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<uint>> {
@@ -351,7 +344,7 @@ impl ExportBlockSender {
 
         rng.fill_bytes(iv.as_mut_slice());
 
-        self.sender.send(FileInstruction::NewBlock(FileBlock {
+        self.sender.send_opt(FileInstruction::NewBlock(FileBlock {
             bytes: try!(crypto::encrypt_block(block, self.encryption_key.as_slice(), iv.as_slice())),
             iv: iv,
             hash: hash

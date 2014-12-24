@@ -77,34 +77,20 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
 
             match self.directory_id_list.pop() {
                 None     => break,
-                Some(id) => {
-                    let mut directory_path = self.path.clone();
-                    directory_path.push(get_directory_name(self.connection, id));
-                    
+                Some(id) =>
                     self.subdirectory = Aliases::new(
                         self.connection,
-                        directory_path,
+                        self.path.join(get_directory_name(self.connection, id)),
                         Directory::Child(id),
                         self.timestamp
-                    )
-                    .ok().map(|alias| box alias)
-                }
+                    ).ok().map(|alias| box alias)
             }
         }
 
-        // return file from current directory
-        match self.file_list.pop() {
-            Some((id, name)) => match get_file_block_list(self.connection, id) {
-                Ok(boxed_slice) => { 
-                    let mut file_path = self.path.clone();
-                    file_path.push(name);
-
-                    Some((file_path, boxed_slice))
-                },
-                Err(..)     => None // no opportunity to return error in an iterator
-            },
-            None            => None
-        } 
+        self.file_list.pop().and_then(|(id, name)|
+            get_file_block_list(self.connection, id).ok().map(|boxed_slice|
+                (self.path.join(name.clone()), boxed_slice)
+        ))
     }
 }
 
