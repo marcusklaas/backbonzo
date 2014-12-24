@@ -2,6 +2,8 @@
 
 extern crate rusqlite;
 extern crate "crypto" as rust_crypto;
+extern crate serialize;
+extern crate time;
 
 use std::io::{IoError, IoResult, TempDir};
 use std::io::fs::{unlink, copy, readdir, File, PathExtensions, mkdir_recursive};
@@ -157,7 +159,7 @@ impl BackupManager {
 
         /* phew! glad that is over. now we listen to thread */
         loop {
-            if deadline.cmp(time::now_utc()) != Ordering::Greater {
+            if deadline.cmp(&time::now_utc()) != Ordering::Greater {
                 break;
             }
             
@@ -218,7 +220,7 @@ impl BackupManager {
         let mut file = try!(File::create(path));
 
         for block_id in block_list.iter() {
-            let (hash, iv) = database::block_from_id(&self.connection, *block_id);
+            let (hash, iv) = try!(database::block_from_id(&self.connection, *block_id));
 
             let block_path = try!(block_output_path(&self.backup_path, hash.as_slice()));
             let mut block_file = try!(File::open(&block_path));
@@ -248,7 +250,8 @@ impl BackupManager {
         
         let mut file = try!(File::open(&self.database_path));
         let bytes = try!(file.read_to_end());
-        let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice()));
+        let iv = [0u8, ..16];
+        let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), &iv));
         let new_index = self.backup_path.join("index-new");
         let index = self.backup_path.join("index");
         
@@ -333,7 +336,7 @@ impl ExportBlockSender {
             return Ok(Some(id))
         }
 
-        let mut iv = Vec::from_elem::<u8>(16, 0);
+        let mut iv = Vec::from_elem(16, 0u8);
         let mut rng = try!(OsRng::new());
 
         rng.fill_bytes(iv.as_mut_slice());
@@ -361,7 +364,7 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
     Ok(try!(database::set_key(&connection, "password", hash.as_slice()).map(|_| ())))
 }
 
-pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String, deadline: Tm) -> BonzoResult<()> {
+pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String, deadline: time::Tm) -> BonzoResult<()> {
     let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, block_bytes, password));
             
     try!(manager.update(deadline));
@@ -382,9 +385,10 @@ fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoRe
 
     let mut file = try!(File::open(&encrypted_index_path));
     let contents = try!(file.read_to_end());
+    let iv = [0u8, ..16];
 
     let key = crypto::derive_key(password.as_slice());
-    let decrypted_content = try!(crypto::decrypt_block(contents[], key[]));
+    let decrypted_content = try!(crypto::decrypt_block(contents[], key[], &iv));
 
     try!(write_to_disk(&decrypted_index_path, decrypted_content[]));
 

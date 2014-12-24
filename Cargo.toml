@@ -1,7 +1,7 @@
 [package]
 
 name = "backbonzo"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 
 [lib]
@@ -11,8 +11,12 @@ name = "backbonzo"
 rusqlite = "*"
 docopt = "*"
 docopt_macros = "*"
-rust-crypto = "*"
 time = "*"
+regex = "*"
+rustc-serialize = "*"
+
+[dependencies.rust-crypto]
+git="https://github.com/marcusklaas/rust-crypto.git"
 
 [[bin]]
 

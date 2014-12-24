@@ -1,4 +1,4 @@
-use super::rust_crypto::{aes, buffer, symmetriccipher};
+use super::rust_crypto::{aes, buffer};
 use super::rust_crypto::digest::Digest;
 use super::rust_crypto::buffer::{WriteBuffer, ReadBuffer};
 use super::rust_crypto::blockmodes::PkcsPadding;

@@ -1,12 +1,15 @@
 #![feature(phase)]
 
+extern crate "rustc-serialize" as rustc_serialize;
 extern crate backbonzo;
 extern crate serialize;
 extern crate docopt;
 extern crate time;
+extern crate regex;
 #[phase(plugin)] extern crate docopt_macros;
 
 use docopt::Docopt;
+use std::time::duration::Duration;
 use backbonzo::{init, backup, restore, BonzoError, BonzoResult};
 
 docopt!(Args deriving Show, "
@@ -25,11 +28,12 @@ Options:
   -k --key=<key>            Encryption key.
   -t --timeout=<seconds>    Maximum execution time in seconds [default: 0].
   -b --blocksize=<bs>       Size of blocks in megabytes [default: 1].
-", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String, flag_timeout: uint);
+  -f --filter=<exp>         Regular expression for paths [default: .+].
+", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String, flag_timeout: uint, flag_filter: String);
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 
-#[deriving(Show, Decodable)]
+#[deriving(Show, RustcDecodable)]
 enum Operation {
     Init,
     Backup,
@@ -43,8 +47,8 @@ fn main() {
     let database_path = source_path.join(DATABASE_FILENAME);
     let block_bytes = 1000 * 1000 * args.flag_blocksize;
     let deadline = time::now_utc() + match args.flag_timeout {
-        0    => Duration::years(1),
-        secs => Duration::seconds(secs)
+        0    => Duration::weeks(52),
+        secs => Duration::seconds(secs as i64)
     };
 
     let result = match args.arg_OPERATION {

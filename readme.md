@@ -3,7 +3,7 @@ backbonzo
 
 [![Build Status](https://travis-ci.org/marcusklaas/backbonzo.svg?branch=master)](https://travis-ci.org/marcusklaas/backbonzo)
 
-backbonzo will be a backup management tool written in Rust. It aims to
+backbonzo is be a backup management tool written in Rust. It aims to
 
 * be secure. To this end, it uses the AES256 cypher to encrypt the data and index before copying them to their destination.
 * be fault tolerant. System crashes or network hangups should never corrupt your data. backbonzo only updates its index when a file has been backed up successfully. It also splits files into small blocks so that it won't lose much progress if it is interrupted.
@@ -22,15 +22,18 @@ Development on backbonzo has only just begun. At this time it is possible to cre
 priority todo list
 ------------------
 
-- [ ] add timeout parameter
+
 - [ ] add security concerns to readme
+- [ ] fix bug where helper thread sends on closed channel
+- [ ] when traversing filesystem, order by modification date
 - [ ] deflate blocks before encryption
 - [ ] implement partial decryption command
-- [ ] use a random initialization vector for each block
 - [ ] take parameters/ read from configuration file
 - [ ] add tests
 - [ ] implement simple logging
 - [ ] add clean up command
+- [x] add timeout parameter
+- [x] use a random initialization vector for each block
 - [x] sort the error handling mess
 - [x] seperate commands for initialization and ordinary backup
 - [x] test correctness and reversibility of encryption
@@ -51,4 +54,4 @@ build
 license
 -------
 
-MIT or Apache2 probably. Project name courtesy of [foswig.js](http://mrsharpoblunto.github.io/foswig.js/).
+MIT or Apache2 probably. Maybe unlicense. Project name courtesy of [foswig.js](http://mrsharpoblunto.github.io/foswig.js/).

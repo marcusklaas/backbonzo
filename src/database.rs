@@ -1,8 +1,8 @@
-extern crate time;
-
 use super::rusqlite::{SqliteResult, SqliteConnection};
 use super::Directory;
-use serialize::base64::{STANDARD, ToBase64};
+use serialize::hex::{ToHex, FromHex};
+use super::time;
+use super::{BonzoResult, BonzoError};
 
 pub struct Aliases<'a> {
     connection: &'a SqliteConnection,
@@ -163,11 +163,11 @@ pub fn persist_file(connection: &SqliteConnection, directory: Directory, filenam
 }
 
 pub fn persist_block(connection: &SqliteConnection, hash: &str, iv: &[u8]) -> SqliteResult<uint> {
-    let iv_hex = iv.to_base64(STANDARD);
+    let iv_hex = iv.to_hex();
     
     try!(connection.execute(
         "INSERT INTO block (hash, iv_hex) VALUES ($1, $2);",
-        &[&hash, &iv_hex]
+        &[&hash, &iv_hex.as_slice()]
     ));
 
     Ok(connection.last_insert_rowid() as uint)
@@ -181,12 +181,18 @@ pub fn file_known(connection: &SqliteConnection, hash: &str) -> bool {
     )
 }
 
-// FIXME: properly propagate errors
-pub fn block_from_id(connection: &SqliteConnection, id: uint) -> (String, Vec<u8>) {
+pub fn block_from_id(connection: &SqliteConnection, id: uint) -> BonzoResult<(String, Vec<u8>)> {
     connection.query_row(
         "SELECT hash, iv_hex FROM block WHERE id = $1;",
         &[&(id as i64)],
-        |row| (row.get(0), row.get(1).from_hex().ok().unwrap())
+        |row| {
+            let iv_hex: String = row.get(1);
+
+            match iv_hex.as_slice().from_hex().ok() {
+                Some(vec) => Ok((row.get(0), vec)),
+                None      => Err(BonzoError::Other(format!("Couldn't parse hex: {}", iv_hex)))
+            }
+        }
     )
 }
 
@@ -257,7 +263,7 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
         "CREATE TABLE block (
             id           INTEGER PRIMARY KEY,
             hash         TEXT NOT NULL,
-            iv_hex       TEXT NOT NULL,
+            iv_hex       TEXT NOT NULL
         );",
         "CREATE INDEX block_hash_index on block (hash)",
         "CREATE TABLE fileblock (
