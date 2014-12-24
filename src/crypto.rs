@@ -1,6 +1,6 @@
-use super::rust_crypto::{aes, buffer};
+use super::rust_crypto::aes::{cbc_decryptor, cbc_encryptor, KeySize};
 use super::rust_crypto::digest::Digest;
-use super::rust_crypto::buffer::{WriteBuffer, ReadBuffer};
+use super::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer, BufferResult};
 use super::rust_crypto::blockmodes::PkcsPadding;
 use super::rust_crypto::sha2::Sha256;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
@@ -58,13 +58,13 @@ pub fn hash_block(block: &[u8]) -> String {
 }
 
 pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
-    let mut encryptor = aes::cbc_encryptor(aes::KeySize::KeySize256, key, iv, PkcsPadding);
+    let mut encryptor = cbc_encryptor(KeySize::KeySize256, key, iv, PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0, ..4096];
-    let mut read_buffer = buffer::RefReadBuffer::new(block);
-    let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+    let mut read_buffer = RefReadBuffer::new(block);
+    let mut write_buffer = RefWriteBuffer::new(&mut buffer);
 
-    while let buffer::BufferResult::BufferOverflow = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true)) {
+    while let BufferResult::BufferOverflow = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true)) {
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
     }
 
@@ -72,13 +72,13 @@ pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
 } 
 
 pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
-    let mut decryptor = aes::cbc_decryptor(aes::KeySize::KeySize256, key, iv, PkcsPadding);
+    let mut decryptor = cbc_decryptor(KeySize::KeySize256, key, iv, PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0, ..4096];
-    let mut read_buffer = buffer::RefReadBuffer::new(block);
-    let mut write_buffer = buffer::RefWriteBuffer::new(&mut buffer);
+    let mut read_buffer = RefReadBuffer::new(block);
+    let mut write_buffer = RefWriteBuffer::new(&mut buffer);
 
-    while let buffer::BufferResult::BufferOverflow = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true)) {
+    while let BufferResult::BufferOverflow = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true)) {
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
     }
 
