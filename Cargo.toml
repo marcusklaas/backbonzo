@@ -22,3 +22,10 @@ git="https://github.com/marcusklaas/rust-crypto.git"
 
 name = "backbonzo"
 
+# The release profile, used for `cargo build --release`
+[profile.release]
+opt-level = 2
+debug = false
+rpath = false
+lto = false
+
