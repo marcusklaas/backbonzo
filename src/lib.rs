@@ -275,7 +275,7 @@ impl ExportBlockSender {
             }
         );
 
-        let mut known_names = try!(database::get_directory_files(&self.connection, directory_id));
+        let mut deleted_filenames = try!(database::get_directory_files(&self.connection, directory_id));
         
         for content_path in content_list.iter() {
             if content_path.is_dir() {
@@ -291,19 +291,15 @@ impl ExportBlockSender {
                     .ok_or(BonzoError::Other(format!("Could not convert filename to string"))
                 )));
 
-                known_names.remove(&filename);
+                deleted_filenames.remove(&filename);
                 
                 try!(self.export_file(directory_id, content_path, filename));
             }
         }
 
-        for deleted_filename in known_names.iter() {            
-            try!(database::persist_null_alias(&self.connection, directory_id, deleted_filename.as_slice()));
-
-            println!("Removed {} from directory {}", deleted_filename, directory_id);
-        }
-
-        Ok(())
+        deleted_filenames.iter().map(|filename|
+            database::persist_null_alias(&self.connection, directory_id, filename.as_slice())
+        ).fold(Ok(()), |a, b| a.and(b))
     }
 
     #[allow(unused_must_use)]
@@ -346,6 +342,7 @@ impl ExportBlockSender {
             return Ok(Some(id))
         }
 
+        /* TODO: we could replace the vector in FileBlock by a 16 byte array */
         let mut iv = Vec::from_elem(16, 0u8);
         let mut rng = try!(OsRng::new());
 

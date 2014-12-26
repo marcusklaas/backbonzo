@@ -74,9 +74,7 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
 pub fn get_directory_files(connection: &SqliteConnection, directory_id: uint) -> SqliteResult<HashSet<String>> {
     let mut statement = try!(connection.prepare(
         "SELECT alias.name FROM alias
-        INNER JOIN
-        (SELECT name, MAX(timestamp) AS last_change FROM alias WHERE directory_id = $1 GROUP BY name, directory_id) a
-        ON alias.name = a.name AND alias.timestamp = a.last_change
+        INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 GROUP BY name) a ON alias.id = a.max_id
         WHERE file_id IS NOT NULL;"
     ));
     let filenames = try!(statement.query(&[&(directory_id as i64)]));
@@ -167,8 +165,11 @@ pub fn file_from_hash(connection: &SqliteConnection, hash: &str) -> Option<uint>
 
 /* TODO: we may want to further normalize database. otherwise, put some indices on these tables */
 pub fn alias_known(connection: &SqliteConnection, directory_id: uint, filename: &str, timestamp: u64) -> bool {
+    // get alias with highest id, and then compare timestamp
     connection.query_row(
-        "SELECT COUNT(id) FROM alias WHERE directory_id = $1 AND name = $2 AND timestamp >= $3 AND file_id IS NOT NULL;",
+        "SELECT COUNT(alias.id) FROM alias
+        INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND name = $2) a ON alias.id = a.max_id
+        WHERE timestamp >= $3 AND file_id IS NOT NULL;",
         &[&(directory_id as i64), &filename, &(timestamp as i64)],
         |row| row.get::<i64>(0) > 0
     )

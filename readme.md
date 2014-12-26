@@ -33,7 +33,7 @@ Other people must have thought about this problem. I should read a book.
 current state
 -------------
 
-Development on backbonzo has only just begun. At this time it is possible to create and restore encrypted backups. Functionality is extremely limited.
+At this time it is possible to create and restore encrypted backups. Functionality is limited. The code is untested and it is *not ready for actual use*. 
 
 priority todo list
 ------------------
@@ -42,10 +42,10 @@ priority todo list
 - [ ] implement partial decryption command
 - [ ] take parameters/ read from configuration file
 - [ ] add tests
-- [ ] find a way to deal with empty files
-- [ ] deal with renames of files. these do not update modified dates. maybe we should consider highest ids of aliases vs largest timestamps
 - [ ] implement simple logging
 - [ ] add clean up command
+- [x] find a way to deal with empty files
+- [x] deal with renames of files
 - [x] add null alias for removed files
 - [x] add security concerns to readme
 - [x] ignore files with alias more recent than last modification
