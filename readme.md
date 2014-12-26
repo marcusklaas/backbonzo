@@ -24,13 +24,15 @@ priority todo list
 
 
 - [ ] add security concerns to readme
-- [ ] add null alias for removed files
 - [ ] deflate blocks before encryption
 - [ ] implement partial decryption command
 - [ ] take parameters/ read from configuration file
 - [ ] add tests
+- [ ] find a way to deal with empty files
+- [ ] deal with renames of files. these do not update modified dates. maybe we should consider highest ids of aliases vs largest timestamps
 - [ ] implement simple logging
 - [ ] add clean up command
+- [x] add null alias for removed files
 - [x] ignore files with alias more recent than last modification
 - [x] fix bug where helper thread sends on closed channel
 - [x] when traversing filesystem, order by modification date

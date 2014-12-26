@@ -80,11 +80,12 @@ pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
     let mut read_buffer = RefReadBuffer::new(block);
     let mut write_buffer = RefWriteBuffer::new(&mut buffer);
 
-    while let BufferResult::BufferOverflow = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true)) {
+    /* TODO: make a macro for do-while loops */
+    while let BufferResult::BufferOverflow = {
+        let result = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true));
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
-    }
-
-    final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+        result
+    } {}
 
     Ok(final_result)
 }

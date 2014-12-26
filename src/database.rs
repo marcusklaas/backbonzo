@@ -1,6 +1,8 @@
 use super::rusqlite::{SqliteResult, SqliteConnection};
-use super::Directory;
+use std::io::TempDir;
+use std::io::fs::PathExtensions;
 use serialize::hex::{ToHex, FromHex};
+use std::collections::HashSet;
 use super::{BonzoResult, BonzoError};
 
 pub struct Aliases<'a> {
@@ -13,26 +15,12 @@ pub struct Aliases<'a> {
 }
 
 impl<'a> Aliases<'a> {
-    pub fn new(connection: &'a SqliteConnection, path: Path, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
-        let mut row_statement = match directory {
-            Directory::Child(..) => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name;")),
-            Directory::Root      => try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id IS NULL AND timestamp <= $1 GROUP BY name;"))
-        };
+    pub fn new(connection: &'a SqliteConnection, path: Path, directory_id: uint, timestamp: u64) -> SqliteResult<Aliases<'a>> {
+        let mut row_statement = try!(connection.prepare("SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name;"));
+        let rows = try!(row_statement.query(&[&(directory_id as i64), &(timestamp as i64)]));
 
-        let rows = match directory {
-            Directory::Child(id) => try!(row_statement.query(&[&(id as i64), &(timestamp as i64)])),
-            Directory::Root      => try!(row_statement.query(&[&(timestamp as i64)]))
-        };
-
-        let mut directory_statement = match directory {
-            Directory::Child(..) => try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;")),
-            Directory::Root      => try!(connection.prepare("SELECT id FROM directory WHERE parent_id IS NULL;"))
-        };
-
-        let directories = match directory {
-            Directory::Child(id) => try!(directory_statement.query(&[&(id as i64)])),
-            Directory::Root      => try!(directory_statement.query(&[]))
-        };
+        let mut directory_statement = try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;"));
+        let directories = try!(directory_statement.query(&[&(directory_id as i64)]));
 
         let alias_id_list: Vec<uint> = try!(rows.map(|row| row.map(|r| r.get::<i64>(0) as uint)).collect()); // TODO: this collect should be unnecessary
         let directory_id_list: Vec<uint> = try!(directories.map(|dir| dir.map(|d| d.get::<i64>(0) as uint)).collect()); // FIXME: duplicate code!
@@ -69,7 +57,7 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
                     self.subdirectory = Aliases::new(
                         self.connection,
                         self.path.join(get_directory_name(self.connection, id)),
-                        Directory::Child(id),
+                        id,
                         self.timestamp
                     ).ok().map(|alias| box alias)
             }
@@ -81,6 +69,19 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
                 (self.path.join(name.clone()), boxed_slice)
         ))
     }
+}
+
+pub fn get_directory_files(connection: &SqliteConnection, directory_id: uint) -> SqliteResult<HashSet<String>> {
+    let mut statement = try!(connection.prepare(
+        "SELECT alias.name FROM alias
+        INNER JOIN
+        (SELECT name, MAX(timestamp) AS last_change FROM alias WHERE directory_id = $1 GROUP BY name, directory_id) a
+        ON alias.name = a.name AND alias.timestamp = a.last_change
+        WHERE file_id IS NOT NULL;"
+    ));
+    let filenames = try!(statement.query(&[&(directory_id as i64)]));
+
+    filenames.map(|row_result| row_result.map(|row| row.get::<String>(0))).collect()
 }
 
 fn get_directory_name(connection: &SqliteConnection, directory_id: uint) -> String {
@@ -108,7 +109,7 @@ fn get_file_block_list(connection: &SqliteConnection, file_id: uint) -> SqliteRe
         .map(|vec| vec.into_boxed_slice())
 }
 
-pub fn persist_file(connection: &SqliteConnection, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[uint]) -> SqliteResult<()> {
+pub fn persist_file(connection: &SqliteConnection, directory_id: uint, filename: &str, hash: &str, last_modified: u64, block_id_list: &[uint]) -> SqliteResult<()> {
     let transaction = try!(connection.transaction());
 
     try!(connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
@@ -122,11 +123,29 @@ pub fn persist_file(connection: &SqliteConnection, directory: Directory, filenam
         ));
     }
     
-    let alias_query = "INSERT INTO alias (directory_id, file_id, name, timestamp) VALUES ($1, $2, $3, $4);";
-    
-    try!(connection.execute(alias_query, &[&directory.into_option(), &(file_id as i64), &filename, &(last_modified as i64)]));
+    try!(persist_alias(connection, directory_id, Some(file_id as uint), filename, last_modified));
 
     transaction.commit()
+}
+
+pub fn persist_alias(connection: &SqliteConnection, directory_id: uint, file_id: Option<uint>, filename: &str, last_modified: u64) -> SqliteResult<()> {
+    let signed_file_id: Option<i64> = file_id.map(|unsigned| unsigned as i64);
+    
+    connection.execute(
+        "INSERT INTO alias (directory_id, file_id, name, timestamp) VALUES ($1, $2, $3, $4);",
+        &[&(directory_id as i64), &signed_file_id, &filename, &(last_modified as i64)]
+    ).map(|_|())
+}
+
+pub fn persist_null_alias(connection: &SqliteConnection, directory_id: uint, filename: &str) -> BonzoResult<()> {    
+    Ok(try!(persist_alias(connection, directory_id, None, filename, try!(get_filesystem_time()))))
+}
+
+/* FIXME: we can probably use the time crate for this */
+fn get_filesystem_time() -> BonzoResult<u64> {
+    let temp_directory = try!(TempDir::new("bbtime"));
+
+    Ok(try!(temp_directory.path().stat()).modified)
 }
 
 pub fn persist_block(connection: &SqliteConnection, hash: &str, iv: &[u8]) -> SqliteResult<uint> {
@@ -138,28 +157,21 @@ pub fn persist_block(connection: &SqliteConnection, hash: &str, iv: &[u8]) -> Sq
     Ok(connection.last_insert_rowid() as uint)
 }
 
-pub fn file_known(connection: &SqliteConnection, hash: &str) -> bool {
+pub fn file_from_hash(connection: &SqliteConnection, hash: &str) -> Option<uint> {
     connection.query_row(
-        "SELECT COUNT(id) FROM file WHERE hash = $1;",
+        "SELECT SUM(id) FROM file WHERE hash = $1;",
         &[&hash],
-        |row| row.get::<i64>(0) > 0
+        |row| row.get::<Option<i64>>(0).map(|signed| signed as uint)
     )
 }
 
 /* TODO: we may want to further normalize database. otherwise, put some indices on these tables */
-pub fn alias_known(connection: &SqliteConnection, directory: Directory, filename: &str, timestamp: u64) -> bool {
-    match directory.into_option() {
-        Some(id) => connection.query_row(
-            "SELECT COUNT(id) FROM alias WHERE directory_id = $1 AND name = $2 AND timestamp >= $3;",
-            &[&id, &filename, &(timestamp as i64)],
-            |row| row.get::<i64>(0) > 0
-        ),
-        None => connection.query_row(
-            "SELECT COUNT(id) FROM alias WHERE directory_id IS NULL AND name = $2 AND timestamp >= $3;",
-            &[&filename, &(timestamp as i64)],
-            |row| row.get::<i64>(0) > 0
-        )
-    }
+pub fn alias_known(connection: &SqliteConnection, directory_id: uint, filename: &str, timestamp: u64) -> bool {
+    connection.query_row(
+        "SELECT COUNT(id) FROM alias WHERE directory_id = $1 AND name = $2 AND timestamp >= $3 AND file_id IS NOT NULL;",
+        &[&(directory_id as i64), &filename, &(timestamp as i64)],
+        |row| row.get::<i64>(0) > 0
+    )
 }
 
 pub fn block_from_id(connection: &SqliteConnection, id: uint) -> BonzoResult<(String, Vec<u8>)> {
@@ -181,28 +193,20 @@ pub fn block_id_from_hash(connection: &SqliteConnection, hash: &str) -> Option<u
     ).map(|signed| signed as uint)
 }
 
-pub fn get_directory(connection: &SqliteConnection, parent: Directory, name: &str) -> SqliteResult<Directory> {
-    let parent_id = parent.into_option();
-    
-    let directory_id: Option<i64> = match parent_id {
-        Some(parent) => {
-            let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
-            connection.query_row(select_query, &[&name, &parent], |row| row.get(0))
-        },
-        None => {
-            let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id IS NULL;"; 
-            connection.query_row(select_query, &[&name], |row| row.get(0))
-        }
+pub fn get_directory(connection: &SqliteConnection, parent: uint, name: &str) -> SqliteResult<uint> {
+    let directory_id: Option<i64> = {
+        let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
+        connection.query_row(select_query, &[&name, &(parent as i64)], |row| row.get(0))
     };
     
     if directory_id.is_some() {
-        return Ok(Directory::Child(directory_id.unwrap() as uint));
+        return Ok(directory_id.unwrap() as uint);
     }
     
     let insert_query = "INSERT INTO directory (parent_id, name) VALUES ($1, $2);";
     
-    connection.execute(insert_query, &[&parent_id, &name])
-        .and(Ok(Directory::Child(connection.last_insert_rowid() as uint)))
+    connection.execute(insert_query, &[&(parent as i64), &name])
+        .and(Ok(connection.last_insert_rowid() as uint))
 }
 
 pub fn set_key(connection: &SqliteConnection, key: &str, value: &str) -> SqliteResult<uint> {
@@ -226,11 +230,12 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
             FOREIGN KEY(parent_id) REFERENCES directory(id),
             UNIQUE(parent_id, name)
         );",
+        "INSERT INTO directory (id, name) VALUES (0, \".\");",
         "CREATE TABLE file (
             id           INTEGER PRIMARY KEY,
             hash         TEXT NOT NULL
         );",
-        "CREATE INDEX file_hash_index on file (hash)",
+        "CREATE INDEX file_hash_index ON file (hash)",
         "CREATE TABLE alias (
             id           INTEGER PRIMARY KEY,
             directory_id INTEGER,
@@ -245,7 +250,7 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
             hash         TEXT NOT NULL,
             iv_hex       TEXT NOT NULL
         );",
-        "CREATE INDEX block_hash_index on block (hash)",
+        "CREATE INDEX block_hash_index ON block (hash)",
         "CREATE TABLE fileblock (
             id           INTEGER PRIMARY KEY,
             file_id      INTEGER NOT NULL,

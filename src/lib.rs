@@ -71,21 +71,6 @@ impl<'a> Blocks<'a> {
     }
 }
 
-#[deriving(Copy)]
-enum Directory {
-    Root,
-    Child(uint)
-}
-
-impl Directory {
-    pub fn into_option(self) -> Option<i64> {
-        match self {
-            Directory::Root      => None,
-            Directory::Child(id) => Some(id as i64)
-        }
-    }
-}
-
 enum FileInstruction {
     NewBlock(FileBlock),
     Complete(FileComplete),
@@ -108,7 +93,7 @@ struct FileComplete {
     pub filename: String,
     pub hash: String,
     pub last_modified: u64,
-    pub directory: Directory,
+    pub directory_id: uint,
     pub block_id_list: Vec<Option<uint>>
 }
 
@@ -152,7 +137,7 @@ impl BackupManager {
         let source_path = self.source_path.clone();
 
         Thread::spawn(move||
-            tx.send(match ExportBlockSender::new(path, key, block_size, tx.clone()).and_then(|exporter| exporter.export_directory(&source_path, Directory::Root)) {
+            tx.send(match ExportBlockSender::new(path, key, block_size, tx.clone()).and_then(|exporter| exporter.export_directory(&source_path, 0)) {
                 Ok(..) => FileInstruction::Done,
                 Err(e) => FileInstruction::Error(e)
             })
@@ -188,7 +173,7 @@ impl BackupManager {
 
                     try!(database::persist_file(
                         &self.connection,
-                        file.directory,
+                        file.directory_id,
                         file.filename.as_slice(),
                         file.hash.as_slice(),
                         file.last_modified,
@@ -202,14 +187,13 @@ impl BackupManager {
     }
 
     pub fn restore(&self, timestamp: u64) -> BonzoResult<()> {
-        try!(database::Aliases::new(&self.connection, self.source_path.clone(), Directory::Root, timestamp))
+        try!(database::Aliases::new(&self.connection, self.source_path.clone(), 0, timestamp))
             .map(|(path, block_list)| self.restore_file(&path, block_list.as_slice()))
             .fold(Ok(()), |a, b| a.and(b))
     }
 
     pub fn restore_file(&self, path: &Path, block_list: &[uint]) -> BonzoResult<()> {
-        let mut file_directory = path.clone();
-        file_directory.pop();
+        let file_directory = path.dir_path();
         try!(mkdir_recursive(&file_directory, std::io::FilePermission::all()));
         
         let mut file = try!(File::create(path));
@@ -276,7 +260,7 @@ impl ExportBlockSender {
         })
     }
 
-    pub fn export_directory(&self, path: &Path, directory: Directory) -> BonzoResult<()> {
+    pub fn export_directory(&self, path: &Path, directory_id: uint) -> BonzoResult<()> {
         let mut content_list = try!(readdir(path));
 
         /* FIXME: we're doing lots of stats this way. better to do them once, pair them
@@ -290,35 +274,50 @@ impl ExportBlockSender {
                 }
             }
         );
+
+        let mut known_names = try!(database::get_directory_files(&self.connection, directory_id));
         
         for content_path in content_list.iter() {
             if content_path.is_dir() {
                 let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
                 let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
-                let child_directory = try!(database::get_directory(&self.connection, directory, name));
+                let child_directory_id = try!(database::get_directory(&self.connection, directory_id, name));
             
-                try!(self.export_directory(content_path, child_directory));
+                try!(self.export_directory(content_path, child_directory_id));
             }
             else {
-                try!(self.export_file(directory, content_path));
+                let filename = String::from_str(try!(
+                    content_path.filename_str()
+                    .ok_or(BonzoError::Other(format!("Could not convert filename to string"))
+                )));
+
+                known_names.remove(&filename);
+                
+                try!(self.export_file(directory_id, content_path, filename));
             }
+        }
+
+        for deleted_filename in known_names.iter() {            
+            try!(database::persist_null_alias(&self.connection, directory_id, deleted_filename.as_slice()));
+
+            println!("Removed {} from directory {}", deleted_filename, directory_id);
         }
 
         Ok(())
     }
 
-    fn export_file(&self, directory: Directory, path: &Path) -> BonzoResult<()> {
-        let filename = try!(path.filename_str().ok_or(BonzoError::Other(format!("Could not convert path to string"))));
+    #[allow(unused_must_use)]
+    fn export_file(&self, directory_id: uint, path: &Path, filename: String) -> BonzoResult<()> {
         let last_modified = try!(path.stat()).modified;
 
-        if database::alias_known(&self.connection, directory, filename, last_modified) {           
+        if database::alias_known(&self.connection, directory_id, filename.as_slice(), last_modified) {           
             return Ok(());
         }
         
         let hash = try!(crypto::hash_file(path));
-        
-        if database::file_known(&self.connection, hash.as_slice()) {
-            return Ok(());
+
+        if let Some(file_id) = database::file_from_hash(&self.connection, hash.as_slice()) {
+            return Ok(try!(database::persist_alias(&self.connection, directory_id, Some(file_id), filename.as_slice(), last_modified)));
         }
         
         let mut blocks = try!(Blocks::from_path(path, self.block_size));
@@ -329,16 +328,17 @@ impl ExportBlockSender {
         }
         
         self.sender.send_opt(FileInstruction::Complete(FileComplete {
-            filename: String::from_str(filename),
+            filename: filename,
             hash: hash,
             last_modified: last_modified,
-            directory: directory,
+            directory_id: directory_id,
             block_id_list: block_id_list
         }));
 
         Ok(())
     }
 
+    #[allow(unused_must_use)]
     pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<uint>> {
         let hash = crypto::hash_block(block);
 

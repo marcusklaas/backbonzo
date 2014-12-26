@@ -46,7 +46,7 @@ fn main() {
     let backup_path = Path::new(args.flag_destination);
     let database_path = source_path.join(DATABASE_FILENAME);
     let block_bytes = 1000 * 1000 * args.flag_blocksize;
-    let deadline = time::now_utc() + match args.flag_timeout {
+    let deadline = time::now() + match args.flag_timeout {
         0    => Duration::weeks(52),
         secs => Duration::seconds(secs as i64)
     };
