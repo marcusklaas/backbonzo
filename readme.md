@@ -13,6 +13,7 @@ backbonzo is be a backup management tool written in Rust. It aims to
 * expose its index. Command line programs do not provide the most user friendly interface. By storing the metadata in a straightforward sqlite database, other programs can easily provide graphical user interfaces (with the understanding that they possess the key).
 * keep it simple. backbonzo fully relies on the abstractions the filesystem provides. It doesn't come with a dozen adapters for FTP, Dropbox, Amazon S3 or Google Drive. Nor does it provide clustering; backbonzo provides a single source, single destination backup procedure.
 * do things concurrently. Creating encrypted backups involves computation and transportation. These can readily be done in parallel, so that one will never have to wait for the other.
+* never crash or leak memory. All errors are properly handled where possible. Memory safety is enforced by the Rust compiler. Backbonzo never uses more than 3 megabytes of memory (when the block size is 1M).
 
 security concerns
 -----------------
