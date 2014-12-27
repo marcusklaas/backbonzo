@@ -223,7 +223,7 @@ pub fn get_key(connection: &SqliteConnection, key: &str) -> Option<String> {
 }
 
 pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
-    let queries = [
+    [
         "CREATE TABLE directory (
             id        INTEGER PRIMARY KEY,
             parent_id INTEGER,
@@ -264,11 +264,5 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
             key          TEXT PRIMARY KEY,
             value        TEXT
         );"
-    ];
-
-    for query in queries.iter() {
-        try!(connection.execute(*query, &[]));
-    }
-        
-    Ok(())
+    ].iter().map(|query| connection.execute(*query, &[])).fold(Ok((0)), |a, b| a.and(b)).map(|_|())
 }

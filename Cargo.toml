@@ -14,9 +14,10 @@ docopt_macros = "*"
 time = "*"
 regex = "*"
 rustc-serialize = "*"
+rust-crypto = "*"
 
-[dependencies.rust-crypto]
-git="https://github.com/marcusklaas/rust-crypto.git"
+[dependencies.bzip2]
+git = "https://github.com/alexcrichton/bzip2-rs"
 
 [[bin]]
 

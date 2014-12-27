@@ -38,12 +38,12 @@ At this time it is possible to create and restore encrypted backups. Functionali
 priority todo list
 ------------------
 
-- [ ] deflate blocks before encryption
 - [ ] implement partial decryption command
 - [ ] take parameters/ read from configuration file
 - [ ] add tests
 - [ ] implement simple logging
 - [ ] add clean up command
+- [x] deflate blocks before encryption
 - [x] find a way to deal with empty files
 - [x] deal with renames of files
 - [x] add null alias for removed files

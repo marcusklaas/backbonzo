@@ -4,17 +4,22 @@ extern crate rusqlite;
 extern crate "crypto" as rust_crypto;
 extern crate serialize;
 extern crate time;
+extern crate bzip2;
 
-use std::io::{IoError, IoResult, TempDir};
+use std::io::{IoError, IoResult, TempDir, BufReader};
 use std::io::fs::{unlink, copy, readdir, File, PathExtensions, mkdir_recursive};
 use std::error::FromError;
 use std::path::Path;
-use rusqlite::{SqliteConnection, SqliteError, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
-use rust_crypto::symmetriccipher::SymmetricCipherError;
 use std::thread::Thread;
 use std::comm::sync_channel;
 use std::collections::RingBuf;
 use std::rand::{Rng, OsRng};
+
+use rusqlite::{SqliteConnection, SqliteError, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
+use rust_crypto::symmetriccipher::SymmetricCipherError;
+
+use bzip2::CompressionLevel;
+use bzip2::reader::{BzDecompressor, BzCompressor};
 
 // FIXME: import crypto crate in the crypto module and re-export SymmetricCipherError there (or our own crypto error)
 
@@ -205,7 +210,10 @@ impl BackupManager {
             let bytes = try!(block_file.read_to_end());
             let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice()));
 
-            try!(file.write(decrypted_bytes.as_slice()));
+            let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
+            let decompresed_bytes = try!(decompressor.read_to_end());
+
+            try!(file.write(decompresed_bytes.as_slice()));
             try!(file.fsync());
         }
 
@@ -348,8 +356,11 @@ impl ExportBlockSender {
 
         rng.fill_bytes(iv.as_mut_slice());
 
+        let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
+        let compressed_bytes = try!(compressor.read_to_end());
+
         self.sender.send_opt(FileInstruction::NewBlock(FileBlock {
-            bytes: try!(crypto::encrypt_block(block, self.encryption_key.as_slice(), iv.as_slice())),
+            bytes: try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice())),
             iv: iv,
             hash: hash
         }));
