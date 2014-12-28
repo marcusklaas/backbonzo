@@ -156,13 +156,11 @@ impl BackupManager {
                 FileInstruction::Done     => break,
                 FileInstruction::Error(e) => return Err(e),
                 FileInstruction::NewBlock(block) => {
-                    let path = try!(block_output_path(&self.backup_path, block.hash.as_slice()));
-            
-                    try!(write_to_disk(&path, block.bytes.as_slice()));
+                    try!(block_output_path(&self.backup_path, block.hash.as_slice())
+                        .and_then(|path| write_to_disk(&path, block.bytes.as_slice())));
         
-                    let id = try!(database::persist_block(&self.connection, block.hash.as_slice(), block.iv.as_slice()));
-
-                    id_queue.push_back(id);
+                    try!(database::persist_block(&self.connection, block.hash.as_slice(), block.iv.as_slice())
+                        .map(|id| id_queue.push_back(id)));
                 },
                 FileInstruction::Complete(file) => {
                     let real_id_list = try!(file.block_id_list.iter()
@@ -263,23 +261,20 @@ impl ExportBlockSender {
     }
 
     pub fn export_directory(&self, path: &Path, directory_id: uint) -> BonzoResult<()> {
-        let mut content_list = try!(readdir(path));
+        let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
+            .and_then(|list| list.into_iter()
+                .map(|path| match path.stat() {
+                    Ok(stats) => Ok((stats.modified, path)),
+                    Err(e)    => Err(e)
+                })
+                .collect()
+            ));
 
-        /* FIXME: we're doing lots of stats this way. better to do them once, pair them
-         * with their paths and then sort those */
-        content_list.sort_by(|a, b|
-            match a.stat() {
-                Err(..)    => Equal,
-                Ok(a_stat) => match b.stat() {
-                    Err(..)    => Equal,
-                    Ok(b_stat) => b_stat.modified.cmp(&a_stat.modified)
-                }
-            }
-        );
+        content_list.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
 
         let mut deleted_filenames = try!(database::get_directory_files(&self.connection, directory_id));
         
-        for content_path in content_list.iter() {
+        for &(last_modified, ref content_path) in content_list.iter() {
             if content_path.is_dir() {
                 let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
                 let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
@@ -295,7 +290,7 @@ impl ExportBlockSender {
 
                 deleted_filenames.remove(&filename);
                 
-                try!(self.export_file(directory_id, content_path, filename));
+                try!(self.export_file(directory_id, content_path, filename, last_modified));
             }
         }
 
@@ -305,9 +300,7 @@ impl ExportBlockSender {
     }
 
     #[allow(unused_must_use)]
-    fn export_file(&self, directory_id: uint, path: &Path, filename: String) -> BonzoResult<()> {
-        let last_modified = try!(path.stat()).modified;
-
+    fn export_file(&self, directory_id: uint, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
         if database::alias_known(&self.connection, directory_id, filename.as_slice(), last_modified) {           
             return Ok(());
         }
