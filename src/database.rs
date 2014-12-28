@@ -1,4 +1,4 @@
-use super::rusqlite::{SqliteResult, SqliteConnection};
+use super::rusqlite::{SqliteResult, SqliteConnection, SqliteRow};
 use std::io::TempDir;
 use std::io::fs::PathExtensions;
 use serialize::hex::{ToHex, FromHex};
@@ -21,28 +21,27 @@ impl<'a> Aliases<'a> {
 
         let mut directory_statement = try!(connection.prepare("SELECT id FROM directory WHERE parent_id = $1;"));
         let directories = try!(directory_statement.query(&[&(directory_id as i64)]));
-
-        let alias_id_list: Vec<uint> = try!(rows.map(|row| row.map(|r| r.get::<i64>(0) as uint)).collect()); // TODO: this collect should be unnecessary
-        let directory_id_list: Vec<uint> = try!(directories.map(|dir| dir.map(|d| d.get::<i64>(0) as uint)).collect()); // FIXME: duplicate code!
-
-        let file_list: Vec<(uint, String)> = alias_id_list
-            .iter()
-            .filter_map(|id| alias_to_file(connection, *id))
-            .collect();
+        
+        let file_list: Vec<(uint, String)> = try!(rows
+            .filter_map(|row| match extract_uint(row) {
+                Ok(id) => alias_to_file(connection, id).map(|pair| Ok(pair)),
+                Err(e) => Some(Err(e)) 
+            })
+            .collect());
         
         Ok(Aliases {
             connection: connection,
             path: path,
             timestamp: timestamp,
             file_list: file_list,
-            directory_id_list: directory_id_list,
+            directory_id_list: try!(directories.map(extract_uint).collect()),
             subdirectory: None
         })
     }
 }
 
-impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
-    fn next(&mut self) -> Option<(Path, Box<[uint]>)> {
+impl<'a> Iterator<(Path, Vec<uint>)> for Aliases<'a> {
+    fn next(&mut self) -> Option<(Path, Vec<uint>)> {
         // return file from child directory
         loop {
             if let Some(ref mut dir) = self.subdirectory {
@@ -69,6 +68,10 @@ impl<'a> Iterator<(Path, Box<[uint]>)> for Aliases<'a> {
                 (self.path.join(name.clone()), boxed_slice)
         ))
     }
+}
+
+fn extract_uint(row: SqliteResult<SqliteRow>) -> SqliteResult<uint> {
+    row.map(|result| result.get::<i64>(0) as uint)
 }
 
 pub fn get_directory_files(connection: &SqliteConnection, directory_id: uint) -> SqliteResult<HashSet<String>> {
@@ -98,13 +101,12 @@ fn alias_to_file(connection: &SqliteConnection, alias_id: uint) -> Option<(uint,
     )
 }
 
-fn get_file_block_list(connection: &SqliteConnection, file_id: uint) -> SqliteResult<Box<[uint]>> {
+fn get_file_block_list(connection: &SqliteConnection, file_id: uint) -> SqliteResult<Vec<uint>> {
     let mut statement = try!(connection.prepare("SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;"));
     
     try!(statement.query(&[&(file_id as i64)]))
-        .map(|row_result| row_result.map(|row| row.get::<i64>(0) as uint))
-        .collect::<SqliteResult<Vec<uint>>>()
-        .map(|vec| vec.into_boxed_slice())
+        .map(extract_uint)
+        .collect()
 }
 
 pub fn persist_file(connection: &SqliteConnection, directory_id: uint, filename: &str, hash: &str, last_modified: u64, block_id_list: &[uint]) -> SqliteResult<()> {
@@ -200,8 +202,8 @@ pub fn get_directory(connection: &SqliteConnection, parent: uint, name: &str) ->
         connection.query_row(select_query, &[&name, &(parent as i64)], |row| row.get(0))
     };
     
-    if directory_id.is_some() {
-        return Ok(directory_id.unwrap() as uint);
+    if let Some(id) = directory_id {
+        return Ok(id as uint);
     }
     
     let insert_query = "INSERT INTO directory (parent_id, name) VALUES ($1, $2);";
@@ -239,7 +241,7 @@ pub fn setup(connection: &SqliteConnection) -> SqliteResult<()> {
         "CREATE INDEX file_hash_index ON file (hash)",
         "CREATE TABLE alias (
             id           INTEGER PRIMARY KEY,
-            directory_id INTEGER,
+            directory_id INTEGER NOT NULL,
             file_id      INTEGER,
             name         TEXT NOT NULL,
             timestamp    INTEGER,

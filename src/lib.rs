@@ -131,6 +131,7 @@ impl BackupManager {
         })
     }
 
+    /* TODO: move exportblocksender and its creation to separate file */
     pub fn update(&mut self, deadline: time::Tm) -> BonzoResult<()> {
         try!(self.check_key());
 
@@ -164,17 +165,10 @@ impl BackupManager {
                     id_queue.push_back(id);
                 },
                 FileInstruction::Complete(file) => {
-                    let mut real_id_list = Vec::new();
-
-                    for id in file.block_id_list.iter() {
-                        match *id {
-                            Some(i) => real_id_list.push(i),
-                            None    => match id_queue.pop_front() {
-                                Some(i) => real_id_list.push(i),
-                                None    => return Err(BonzoError::Other(format!("Block buffer is empty")))
-                            }
-                        }
-                    }
+                    let real_id_list = try!(file.block_id_list.iter()
+                        .map(|&id| id.or_else(|| id_queue.pop_front()))
+                        .collect::<Option<Vec<uint>>>()
+                        .ok_or(BonzoError::Other(format!("Block buffer is empty"))));
 
                     try!(database::persist_file(
                         &self.connection,
@@ -194,7 +188,7 @@ impl BackupManager {
     pub fn restore(&self, timestamp: u64) -> BonzoResult<()> {
         try!(database::Aliases::new(&self.connection, self.source_path.clone(), 0, timestamp))
             .map(|(path, block_list)| self.restore_file(&path, block_list.as_slice()))
-            .fold(Ok(()), |a, b| a.and(b))
+            .fold(Ok(()), |a, b| a.and(b)) // FIXME: does this return instantly on error? maybe it does fold the list, but w/o evaluating the map?
     }
 
     pub fn restore_file(&self, path: &Path, block_list: &[uint]) -> BonzoResult<()> {

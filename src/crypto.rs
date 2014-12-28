@@ -38,7 +38,7 @@ pub fn derive_key(password: &str) -> Vec<u8> {
     derived_key
 }
 
-pub fn hash_file(path: &Path) -> IoResult<String> {
+pub fn hash_file(path: &Path) -> IoResult<String> {    
     let mut hasher = Sha256::new();
     let mut blocks = try!(Blocks::from_path(path, 1024));
     
