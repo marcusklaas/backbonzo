@@ -64,8 +64,8 @@ impl<'a> Iterator<(Path, Vec<uint>)> for Aliases<'a> {
 
         // return file from current directory
         self.file_list.pop().and_then(|(id, name)|
-            get_file_block_list(self.connection, id).ok().map(|boxed_slice|
-                (self.path.join(name.clone()), boxed_slice)
+            get_file_block_list(self.connection, id).ok().map(|block_list|
+                (self.path.join(name.as_slice()), block_list)
         ))
     }
 }

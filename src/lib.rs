@@ -283,14 +283,14 @@ impl ExportBlockSender {
                 try!(self.export_directory(content_path, child_directory_id));
             }
             else {
-                let filename = String::from_str(try!(
-                    content_path.filename_str()
-                    .ok_or(BonzoError::Other(format!("Could not convert filename to string"))
-                )));
-
-                deleted_filenames.remove(&filename);
-                
-                try!(self.export_file(directory_id, content_path, filename, last_modified));
+                try!(content_path
+                    .filename_str()
+                    .ok_or(BonzoError::Other(format!("Could not convert filename to string")))
+                    .map(String::from_str)
+                    .and_then(|filename| {
+                        deleted_filenames.remove(&filename);
+                        self.export_file(directory_id, content_path, filename, last_modified)
+                    }));
             }
         }
 
