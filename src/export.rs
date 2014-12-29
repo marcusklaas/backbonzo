@@ -25,11 +25,8 @@ struct FileBlock {
     pub hash: String
 }
 
-// okay this is kinda complex but here's how the block_id_list works. known blocks
-// are represented by Some(id), and new blocks are represented by None as we don't
-// known the id in the thread that does the encryption. the handling thread needs
-// to keep track of the ids of the new blocks since the last completed file and
-// replace them (in the right order!)
+// known blocks are represented by Some(id), and new blocks are represented by
+// None as we don't known the id in the thread that does the encryption
 struct FileComplete {
     pub filename: String,
     pub hash: String,

@@ -123,8 +123,7 @@ impl BackupManager {
     }
 
     pub fn restore_file(&self, path: &Path, block_list: &[uint]) -> BonzoResult<()> {
-        let file_directory = path.dir_path();
-        try!(mkdir_recursive(&file_directory, std::io::FilePermission::all()));
+        try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all()));
         
         let mut file = try!(File::create(path));
 
@@ -134,7 +133,6 @@ impl BackupManager {
             let mut block_file = try!(File::open(&block_path));
             let bytes = try!(block_file.read_to_end());
             let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice()));
-
             let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
             let decompresed_bytes = try!(decompressor.read_to_end());
 

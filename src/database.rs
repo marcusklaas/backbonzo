@@ -129,9 +129,14 @@ impl Database {
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 GROUP BY name) a ON alias.id = a.max_id
             WHERE file_id IS NOT NULL;"
         ));
-        let filenames = try!(statement.query(&[&(directory_id as i64)]));
-
-        filenames.map(|row_result| row_result.map(|row| row.get::<String>(0))).collect()
+        
+        statement
+            .query(&[&(directory_id as i64)])
+            .and_then(|filenames| filenames
+                .map(|row_result| row_result
+                    .map(|row| row.get::<String>(0))
+                ).collect()
+            )
     }
 
     fn get_directory_name(&self, directory_id: uint) -> String {
