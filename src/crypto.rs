@@ -8,7 +8,7 @@ use super::rust_crypto::scrypt::{scrypt_simple, scrypt_check, ScryptParams};
 use super::rust_crypto::pbkdf2::pbkdf2;
 use super::rust_crypto::hmac::Hmac;
 
-use super::Blocks;
+use super::export::Blocks;
 use std::io::IoResult;
 
 pub fn hash_password(password: &str) -> IoResult<String> {

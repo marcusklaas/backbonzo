@@ -7,24 +7,23 @@ extern crate time;
 extern crate bzip2;
 
 use std::io::{IoError, IoResult, TempDir, BufReader};
-use std::io::fs::{unlink, copy, readdir, File, PathExtensions, mkdir_recursive};
+use std::io::fs::{unlink, copy, File, PathExtensions, mkdir_recursive};
 use std::error::FromError;
 use std::path::Path;
-use std::thread::Thread;
-use std::comm::sync_channel;
 use std::collections::RingBuf;
-use std::rand::{Rng, OsRng};
 
 use rusqlite::{SqliteConnection, SqliteError, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use rust_crypto::symmetriccipher::SymmetricCipherError;
 
-use bzip2::CompressionLevel;
-use bzip2::reader::{BzDecompressor, BzCompressor};
+use bzip2::reader::BzDecompressor;
+
+use export::FileInstruction;
 
 // FIXME: import crypto crate in the crypto module and re-export SymmetricCipherError there (or our own crypto error)
 
 mod database;
 mod crypto;
+mod export;
 
 pub enum BonzoError {
     Database(SqliteError),
@@ -52,55 +51,6 @@ impl FromError<SqliteError> for BonzoError {
 }
 
 pub type BonzoResult<T> = Result<T, BonzoError>;
-
-struct Blocks<'a> {
-    file: File,
-    buffer: Box<[u8]>
-}
-
-impl<'a> Blocks<'a> {
-    pub fn from_path(path: &Path, block_size: uint) -> IoResult<Blocks> {
-        let file = try!(File::open(path));
-        
-        Ok(Blocks {
-            file: file,
-            buffer: Vec::from_elem(block_size, 0).into_boxed_slice()
-        })
-    }
-    
-    pub fn next(&'a mut self) -> Option<&'a [u8]> {
-        match self.file.read(&mut *self.buffer) {
-            Err(..)   => None,
-            Ok(bytes) => Some(self.buffer[0..bytes])
-        }
-    }
-}
-
-enum FileInstruction {
-    NewBlock(FileBlock),
-    Complete(FileComplete),
-    Error(BonzoError),
-    Done
-}
-
-struct FileBlock {
-    pub bytes: Vec<u8>,
-    pub iv: Vec<u8>,
-    pub hash: String
-}
-
-// okay this is kinda complex but here's how the block_id_list works. known blocks
-// are represented by Some(id), and new blocks are represented by None as we don't
-// known the id in the thread that does the encryption. the handling thread needs
-// to keep track of the ids of the new blocks since the last completed file and
-// replace them (in the right order!)
-struct FileComplete {
-    pub filename: String,
-    pub hash: String,
-    pub last_modified: u64,
-    pub directory_id: uint,
-    pub block_id_list: Vec<Option<uint>>
-}
 
 pub struct BackupManager {
     connection: SqliteConnection,
@@ -131,24 +81,16 @@ impl BackupManager {
         })
     }
 
-    /* TODO: move exportblocksender and its creation to separate file */
     pub fn update(&mut self, deadline: time::Tm) -> BonzoResult<()> {
         try!(self.check_key());
 
-        let (tx, rx) = sync_channel::<FileInstruction>(5);
-
-        let key = self.encryption_key.clone();
-        let path = self.database_path.clone();
-        let block_size = self.block_size;
-        let source_path = self.source_path.clone();
-
-        Thread::spawn(move||
-            tx.send(match ExportBlockSender::new(path, key, block_size, tx.clone()).and_then(|exporter| exporter.export_directory(&source_path, 0)) {
-                Ok(..) => FileInstruction::Done,
-                Err(e) => FileInstruction::Error(e)
-            })
-        ).detach();
-
+        let rx = export::start_export_thread(
+            self.database_path.clone(),
+            self.encryption_key.clone(),
+            self.block_size,
+            self.source_path.clone()
+        );
+        
         let mut id_queue: RingBuf<uint> = RingBuf::new();
 
         while deadline.cmp(&time::now_utc()) == Ordering::Greater {
@@ -239,123 +181,6 @@ impl BackupManager {
     }
 }
 
-struct ExportBlockSender {
-    connection: SqliteConnection,
-    encryption_key: Vec<u8>,
-    block_size: uint,
-    sender: SyncSender<FileInstruction>
-}
-
-impl ExportBlockSender {
-    pub fn new(database_path: Path, encryption_key: Vec<u8>, block_size: uint, sender: SyncSender<FileInstruction>) -> BonzoResult<ExportBlockSender> {
-        if !database_path.exists() {
-            return Err(BonzoError::Other(format!("Database file not found"))); 
-        }
-
-        Ok(ExportBlockSender {
-            connection: try!(open_connection(&database_path)),
-            encryption_key: encryption_key,
-            block_size: block_size,
-            sender: sender
-        })
-    }
-
-    pub fn export_directory(&self, path: &Path, directory_id: uint) -> BonzoResult<()> {
-        let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
-            .and_then(|list| list.into_iter()
-                .map(|path| match path.stat() {
-                    Ok(stats) => Ok((stats.modified, path)),
-                    Err(e)    => Err(e)
-                })
-                .collect()
-            ));
-
-        content_list.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
-
-        let mut deleted_filenames = try!(database::get_directory_files(&self.connection, directory_id));
-        
-        for &(last_modified, ref content_path) in content_list.iter() {
-            if content_path.is_dir() {
-                let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
-                let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
-                let child_directory_id = try!(database::get_directory(&self.connection, directory_id, name));
-            
-                try!(self.export_directory(content_path, child_directory_id));
-            }
-            else {
-                try!(content_path
-                    .filename_str()
-                    .ok_or(BonzoError::Other(format!("Could not convert filename to string")))
-                    .map(String::from_str)
-                    .and_then(|filename| {
-                        deleted_filenames.remove(&filename);
-                        self.export_file(directory_id, content_path, filename, last_modified)
-                    }));
-            }
-        }
-
-        deleted_filenames.iter().map(|filename|
-            database::persist_null_alias(&self.connection, directory_id, filename.as_slice())
-        ).fold(Ok(()), |a, b| a.and(b))
-    }
-
-    #[allow(unused_must_use)]
-    fn export_file(&self, directory_id: uint, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
-        if database::alias_known(&self.connection, directory_id, filename.as_slice(), last_modified) {           
-            return Ok(());
-        }
-        
-        let hash = try!(crypto::hash_file(path));
-
-        if let Some(file_id) = database::file_from_hash(&self.connection, hash.as_slice()) {
-            return Ok(try!(database::persist_alias(&self.connection, directory_id, Some(file_id), filename.as_slice(), last_modified)));
-        }
-        
-        let mut blocks = try!(Blocks::from_path(path, self.block_size));
-        let mut block_id_list = Vec::new();
-        
-        while let Some(slice) = blocks.next() {
-            block_id_list.push(try!(self.export_block(slice)));
-        }
-        
-        self.sender.send_opt(FileInstruction::Complete(FileComplete {
-            filename: filename,
-            hash: hash,
-            last_modified: last_modified,
-            directory_id: directory_id,
-            block_id_list: block_id_list
-        }));
-
-        Ok(())
-    }
-
-    #[allow(unused_must_use)]
-    pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<uint>> {
-        let hash = crypto::hash_block(block);
-
-        if let Some(id) = database::block_id_from_hash(&self.connection, hash.as_slice()) {
-            return Ok(Some(id))
-        }
-
-        /* TODO: we could replace the vector in FileBlock by a 16 byte array */
-        let mut iv = Vec::from_elem(16, 0u8);
-        let mut rng = try!(OsRng::new());
-
-        rng.fill_bytes(iv.as_mut_slice());
-
-        let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
-        let compressed_bytes = try!(compressor.read_to_end());
-
-        self.sender.send_opt(FileInstruction::NewBlock(FileBlock {
-            bytes: try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice())),
-            iv: iv,
-            hash: hash
-        }));
-
-        Ok(None)
-    }
-}
-
 pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
     if database_path.exists() {
         return Err(BonzoError::Other(format!("Database file already exists"))); 
@@ -372,8 +197,7 @@ pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
 pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String, deadline: time::Tm) -> BonzoResult<()> {
     let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, block_bytes, password));
             
-    try!(manager.update(deadline));
-    manager.export_index()
+    manager.update(deadline).and(manager.export_index())
 }
 
 pub fn restore(source_path: Path, backup_path: Path, block_bytes: uint, password: String, timestamp: u64) -> BonzoResult<()> {
