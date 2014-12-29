@@ -5,15 +5,12 @@ use std::rand::{Rng, OsRng};
 use std::thread::Thread;
 use std::comm::sync_channel;
 
-use rusqlite::SqliteConnection;
-
 use bzip2::CompressionLevel;
 use bzip2::reader::BzCompressor;
 
-use super::database;
+use super::database::Database;
 use super::crypto;
 use super::{BonzoResult, BonzoError};
-use super::open_connection;
 
 pub enum FileInstruction {
     NewBlock(FileBlock),
@@ -65,24 +62,20 @@ impl<'a> Blocks<'a> {
 }
 
 pub struct ExportBlockSender {
-    connection: SqliteConnection,
+    database: Database,
     encryption_key: Vec<u8>,
     block_size: uint,
     sender: SyncSender<FileInstruction>
 }
 
 impl ExportBlockSender {
-    pub fn new(database_path: Path, encryption_key: Vec<u8>, block_size: uint, sender: SyncSender<FileInstruction>) -> BonzoResult<ExportBlockSender> {
-        if !database_path.exists() {
-            return Err(BonzoError::Other(format!("Database file not found"))); 
-        }
-
-        Ok(ExportBlockSender {
-            connection: try!(open_connection(&database_path)),
+    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: uint, sender: SyncSender<FileInstruction>) -> ExportBlockSender {
+        ExportBlockSender {
+            database: database,
             encryption_key: encryption_key,
             block_size: block_size,
             sender: sender
-        })
+        }
     }
 
     pub fn export_directory(&self, path: &Path, directory_id: uint) -> BonzoResult<()> {
@@ -97,13 +90,13 @@ impl ExportBlockSender {
 
         content_list.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
 
-        let mut deleted_filenames = try!(database::get_directory_files(&self.connection, directory_id));
+        let mut deleted_filenames = try!(self.database.get_directory_filenames(directory_id));
         
         for &(last_modified, ref content_path) in content_list.iter() {
             if content_path.is_dir() {
                 let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
                 let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
-                let child_directory_id = try!(database::get_directory(&self.connection, directory_id, name));
+                let child_directory_id = try!(self.database.get_directory(directory_id, name));
             
                 try!(self.export_directory(content_path, child_directory_id));
             }
@@ -120,20 +113,20 @@ impl ExportBlockSender {
         }
 
         deleted_filenames.iter().map(|filename|
-            database::persist_null_alias(&self.connection, directory_id, filename.as_slice())
+            self.database.persist_null_alias(directory_id, filename.as_slice())
         ).fold(Ok(()), |a, b| a.and(b))
     }
 
     #[allow(unused_must_use)]
     fn export_file(&self, directory_id: uint, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
-        if database::alias_known(&self.connection, directory_id, filename.as_slice(), last_modified) {           
+        if self.database.alias_known(directory_id, filename.as_slice(), last_modified) {           
             return Ok(());
         }
         
         let hash = try!(crypto::hash_file(path));
 
-        if let Some(file_id) = database::file_from_hash(&self.connection, hash.as_slice()) {
-            return Ok(try!(database::persist_alias(&self.connection, directory_id, Some(file_id), filename.as_slice(), last_modified)));
+        if let Some(file_id) = self.database.file_from_hash(hash.as_slice()) {
+            return Ok(try!(self.database.persist_alias(directory_id, Some(file_id), filename.as_slice(), last_modified)));
         }
         
         let mut blocks = try!(Blocks::from_path(path, self.block_size));
@@ -158,7 +151,7 @@ impl ExportBlockSender {
     pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<uint>> {
         let hash = crypto::hash_block(block);
 
-        if let Some(id) = database::block_id_from_hash(&self.connection, hash.as_slice()) {
+        if let Some(id) = self.database.block_id_from_hash(hash.as_slice()) {
             return Ok(Some(id))
         }
 
@@ -181,14 +174,13 @@ impl ExportBlockSender {
     }
 }
 
-pub fn start_export_thread(database_path: Path, encryption_key: Vec<u8>, block_size: uint, source_path: Path) -> Receiver<FileInstruction> {
+pub fn start_export_thread(database: Database, encryption_key: Vec<u8>, block_size: uint, source_path: Path) -> Receiver<FileInstruction> {
     let (tx, rx) = sync_channel::<FileInstruction>(5);
 
     Thread::spawn(move|| {
-        let export_result = ExportBlockSender::new(database_path, encryption_key, block_size, tx.clone())
-            .and_then(|exporter| exporter.export_directory(&source_path, 0));
+        let exporter = ExportBlockSender::new(database, encryption_key, block_size, tx.clone());
     
-        tx.send(match export_result {
+        tx.send(match exporter.export_directory(&source_path, 0) {
             Ok(..) => FileInstruction::Done,
             Err(e) => FileInstruction::Error(e)
         })

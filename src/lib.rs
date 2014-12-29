@@ -7,17 +7,17 @@ extern crate time;
 extern crate bzip2;
 
 use std::io::{IoError, IoResult, TempDir, BufReader};
-use std::io::fs::{unlink, copy, File, PathExtensions, mkdir_recursive};
+use std::io::fs::{unlink, copy, File, mkdir_recursive};
 use std::error::FromError;
 use std::path::Path;
 use std::collections::RingBuf;
 
-use rusqlite::{SqliteConnection, SqliteError, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
+use rusqlite::SqliteError;
 use rust_crypto::symmetriccipher::SymmetricCipherError;
-
 use bzip2::reader::BzDecompressor;
 
 use export::FileInstruction;
+use database::Database;
 
 // FIXME: import crypto crate in the crypto module and re-export SymmetricCipherError there (or our own crypto error)
 
@@ -53,39 +53,31 @@ impl FromError<SqliteError> for BonzoError {
 pub type BonzoResult<T> = Result<T, BonzoError>;
 
 pub struct BackupManager {
-    connection: SqliteConnection,
-    database_path: Path,
+    database: Database,
     source_path: Path,
     backup_path: Path,
     block_size: uint,
-    password: String,
     encryption_key: Vec<u8>
 }
 
 impl BackupManager {
     pub fn new(database_path: Path, source_path: Path, backup_path: Path, block_size: uint, password: String) -> BonzoResult<BackupManager> {
-        if !database_path.exists() {
-            return Err(BonzoError::Other(format!("Database file not found"))); 
-        }
-
-        let key = crypto::derive_key(password.as_slice());
-                
-        Ok(BackupManager {
-            connection: try!(open_connection(&database_path)),
-            database_path: database_path,
+        let manager = BackupManager {
+            database: try!(Database::from_file(database_path)),
             source_path: source_path,
             backup_path: backup_path,
             block_size: block_size,
-            password: password,
-            encryption_key: key
-        })
+            encryption_key: crypto::derive_key(password.as_slice())
+        };
+
+        try!(manager.check_password(password.as_slice()));
+
+        Ok(manager)
     }
 
     pub fn update(&mut self, deadline: time::Tm) -> BonzoResult<()> {
-        try!(self.check_key());
-
         let rx = export::start_export_thread(
-            self.database_path.clone(),
+            try!(self.database.try_clone()),
             self.encryption_key.clone(),
             self.block_size,
             self.source_path.clone()
@@ -101,7 +93,7 @@ impl BackupManager {
                     try!(block_output_path(&self.backup_path, block.hash.as_slice())
                         .and_then(|path| write_to_disk(&path, block.bytes.as_slice())));
         
-                    try!(database::persist_block(&self.connection, block.hash.as_slice(), block.iv.as_slice())
+                    try!(self.database.persist_block(block.hash.as_slice(), block.iv.as_slice())
                         .map(|id| id_queue.push_back(id)));
                 },
                 FileInstruction::Complete(file) => {
@@ -110,8 +102,7 @@ impl BackupManager {
                         .collect::<Option<Vec<uint>>>()
                         .ok_or(BonzoError::Other(format!("Block buffer is empty"))));
 
-                    try!(database::persist_file(
-                        &self.connection,
+                    try!(self.database.persist_file(
                         file.directory_id,
                         file.filename.as_slice(),
                         file.hash.as_slice(),
@@ -126,9 +117,9 @@ impl BackupManager {
     }
 
     pub fn restore(&self, timestamp: u64) -> BonzoResult<()> {
-        try!(database::Aliases::new(&self.connection, self.source_path.clone(), 0, timestamp))
+        try!(database::Aliases::new(&self.database, self.source_path.clone(), 0, timestamp))
             .map(|(path, block_list)| self.restore_file(&path, block_list.as_slice()))
-            .fold(Ok(()), |a, b| a.and(b)) // FIXME: does this return instantly on error? maybe it does fold the list, but w/o evaluating the map?
+            .fold(Ok(()), |a, b| a.and(b))
     }
 
     pub fn restore_file(&self, path: &Path, block_list: &[uint]) -> BonzoResult<()> {
@@ -138,7 +129,7 @@ impl BackupManager {
         let mut file = try!(File::create(path));
 
         for block_id in block_list.iter() {
-            let (hash, iv) = try!(database::block_from_id(&self.connection, *block_id));
+            let (hash, iv) = try!(self.database.block_from_id(*block_id));
             let block_path = try!(block_output_path(&self.backup_path, hash.as_slice()));
             let mut block_file = try!(File::open(&block_path));
             let bytes = try!(block_file.read_to_end());
@@ -154,21 +145,18 @@ impl BackupManager {
         Ok(())
     }
 
-    fn check_key(&self) -> BonzoResult<()> {
-        let hash = database::get_key(&self.connection, "password");
+    fn check_password(&self, password: &str) -> BonzoResult<()> {
+        let hash = self.database.get_key("password");
         let real_hash = try!(hash.ok_or(BonzoError::Other(format!("Saved hash is NULL"))));
 
-        match crypto::check_password(self.password.as_slice(), real_hash.as_slice()) {
+        match crypto::check_password(password, real_hash.as_slice()) {
             true  => Ok(()),
             false => Err(BonzoError::Other(format!("Password is not the same as in database")))
         }
     }
 
     fn export_index(self) -> BonzoResult<()> {
-        try!(self.connection.close());
-        
-        let mut file = try!(File::open(&self.database_path));
-        let bytes = try!(file.read_to_end());
+        let bytes = try!(self.database.to_bytes());
         let iv = [0u8, ..16];
         let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), &iv));
         let new_index = self.backup_path.join("index-new");
@@ -182,16 +170,12 @@ impl BackupManager {
 }
 
 pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
-    if database_path.exists() {
-        return Err(BonzoError::Other(format!("Database file already exists"))); 
-    }
-    
-    let connection = try!(open_connection(database_path));
+    let database = try!(Database::create(database_path.clone()));
     let hash = try!(crypto::hash_password(password.as_slice()));
     
-    try!(database::setup(&connection));
+    try!(database.setup());
 
-    Ok(try!(database::set_key(&connection, "password", hash.as_slice()).map(|_|())))
+    Ok(try!(database.set_key("password", hash.as_slice()).map(|_|())))
 }
 
 pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String, deadline: time::Tm) -> BonzoResult<()> {
@@ -220,13 +204,6 @@ fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoRe
     try!(write_to_disk(&decrypted_index_path, decrypted_content[]));
 
     Ok(decrypted_index_path)
-}
-
-fn open_connection(path: &Path) -> BonzoResult<SqliteConnection> {
-    let error = BonzoError::Other(format!("Couldn't convert database path to string"));
-    let filename = try!(path.as_str().ok_or(error)); 
-
-    Ok(try!(SqliteConnection::open_with_flags(filename, SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULL_MUTEX)))
 }
 
 fn block_output_path(base_path: &Path, hash: &str) -> IoResult<Path> {
