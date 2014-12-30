@@ -167,8 +167,8 @@ impl BackupManager {
     }
 }
 
-pub fn init(database_path: &Path, password: String) -> BonzoResult<()> {
-    let database = try!(Database::create(database_path.clone()));
+pub fn init(database_path: Path, password: String) -> BonzoResult<()> {
+    let database = try!(Database::create(database_path));
     let hash = try!(crypto::hash_password(password.as_slice()));
     
     try!(database.setup());
@@ -201,7 +201,7 @@ fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoRe
 
     /* TODO: move this part to the database struct. from_bytes() --
      * ah but maybe we cannot because the temp dir will go out of scope.
-     * it could be fine, but probably not */
+     * it could be fine, but probabl */
 
     try!(write_to_disk(&decrypted_index_path, decrypted_content[]));
 

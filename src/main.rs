@@ -52,7 +52,7 @@ fn main() {
     };
 
     let result = match args.arg_OPERATION {
-        Operation::Init    => init(&database_path, args.flag_key),
+        Operation::Init    => init(database_path, args.flag_key),
         Operation::Restore => restore(source_path, backup_path, block_bytes, args.flag_key, 1000 * time::get_time().sec as u64),
         Operation::Backup  => backup(database_path, source_path, backup_path, block_bytes, args.flag_key, deadline)
     };
