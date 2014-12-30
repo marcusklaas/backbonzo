@@ -2,8 +2,10 @@ extern crate backbonzo;
 extern crate time;
 
 use backbonzo::BonzoError;
-use std::io::{IoError, IoResult, TempDir, BufReader};
-use std::io::fs::{unlink, copy, File, mkdir_recursive};
+use std::io::TempDir;
+use std::io::fs::{File, PathExtensions};
+use std::time::duration::Duration;
+//use std::rand::{Rng, OsRng};
 
 #[test]
 fn init() {
@@ -14,6 +16,7 @@ fn init() {
     let result = backbonzo::init(database_path.clone(), password.clone());
 
     assert!(result.is_ok());
+    assert!(database_path.exists());
 
     let second_result = backbonzo::init(database_path.clone(), password.clone());
 
@@ -33,7 +36,7 @@ fn backup_wrong_password() {
     let destination_path = source_path.clone();
     let deadline = time::now();
 
-    let init_result = backbonzo::init(database_path.clone(), String::from_str("testpassword"));
+    assert!(backbonzo::init(database_path.clone(), String::from_str("testpassword")).is_ok());
 
     let backup_result = backbonzo::backup(
         database_path.clone(),
@@ -73,4 +76,55 @@ fn backup_no_init() {
     };
 
     assert!(is_expected);
+}
+
+#[test]
+fn backup_and_restore() {
+    let source_temp = TempDir::new("backbonzo-source").unwrap();
+    let destination_temp = TempDir::new("backbonzo-destination").unwrap();
+    let database_path = source_temp.path().join("index.db3");
+    let source_path = source_temp.path().clone();
+    let destination_path = destination_temp.path().clone();
+    let password = String::from_str("testpassword");
+    let deadline = time::now() + Duration::minutes(1);
+
+    let file_path = source_path.join("welcome.txt");
+    let bytes = "Hello, world!".as_bytes();
+    let mut file = File::create(&file_path).unwrap();
+    assert!(file.write(bytes).is_ok());
+    assert!(file.fsync().is_ok());
+
+    assert!(backbonzo::init(database_path.clone(), password.clone()).is_ok());
+
+    let backup_result = backbonzo::backup(
+        database_path.clone(),
+        source_path.clone(),
+        destination_path.clone(),
+        1000000,
+        password.clone(),
+        deadline);
+
+    assert!(backup_result.is_ok());
+
+    let timestamp = 1000 * time::get_time().sec as u64;
+    let restore_temp = TempDir::new("backbonzo-restore").unwrap();
+    let restore_path = restore_temp.path().clone();
+
+    let restore_result = backbonzo::restore(
+        restore_path.clone(),
+        destination_path.clone(),
+        1000000,
+        password.clone(),
+        timestamp
+    );
+
+    assert!(restore_result.is_ok());
+
+    let restored_file_path = restore_path.join("welcome.txt");
+
+    assert!(restored_file_path.exists());
+
+    let mut restored_file = File::open(&restored_file_path).unwrap();
+
+    assert_eq!(bytes, restored_file.read_to_end().unwrap().as_slice());
 }

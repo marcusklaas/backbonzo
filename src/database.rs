@@ -113,7 +113,7 @@ impl Database {
     pub fn get_directory_content_at(&self, directory_id: uint, timestamp: u64) -> SqliteResult<Vec<(uint, String)>> {
         let mut statement = try!(self.connection.prepare(
             "SELECT alias.file_id, alias.name FROM alias
-            INNER JOIN (SELECT MAX(id) FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name) a ON alias.id = a.max_id
+            INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name) a ON alias.id = a.max_id
             WHERE file_id IS NOT NULL;"
         ));
         

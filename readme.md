@@ -40,6 +40,7 @@ priority todo list
 ------------------
 
 - [ ] implement partial decryption command
+- [ ] write some documentation on how to use backbonzo
 - [ ] take parameters/ read from configuration file
 - [ ] add tests
 - [ ] implement simple logging
@@ -69,7 +70,7 @@ build
 * Install rustc, cargo and the sqlite development headers
 * `$ git clone https://github.com/marcusklaas/backbonzo.git`
 * `$ cd backbonzo`
-* `$ cargo build`
+* `$ cargo build --release`
 
 license
 -------
