@@ -77,7 +77,7 @@ impl BackupManager {
 
     pub fn update(&mut self, deadline: time::Tm) -> BonzoResult<()> {
         let rx = export::start_export_thread(
-            try!(self.database.try_clone()),
+            self.database.get_path(),
             self.encryption_key.clone(),
             self.block_size,
             self.source_path.clone()

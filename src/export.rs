@@ -171,13 +171,20 @@ impl ExportBlockSender {
     }
 }
 
-pub fn start_export_thread(database: Database, encryption_key: Vec<u8>, block_size: uint, source_path: Path) -> Receiver<FileInstruction> {
+pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: uint, source_path: Path) -> Receiver<FileInstruction> {
     let (tx, rx) = sync_channel::<FileInstruction>(5);
+    let path = database_path.clone();
 
     Thread::spawn(move|| {
-        let exporter = ExportBlockSender::new(database, encryption_key, block_size, tx.clone());
+        let result = match Database::from_file(path) {
+            Err(e) => Err(e),
+            Ok(database) => {
+                ExportBlockSender::new(database, encryption_key, block_size, tx.clone())
+                    .export_directory(&source_path, 0)
+            }
+        };
     
-        tx.send(match exporter.export_directory(&source_path, 0) {
+        tx.send(match result {
             Ok(..) => FileInstruction::Done,
             Err(e) => FileInstruction::Error(e)
         })

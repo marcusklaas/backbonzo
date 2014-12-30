@@ -75,8 +75,8 @@ impl Database {
         })
     }
 
-    pub fn try_clone(&self) -> BonzoResult<Database> {
-        Database::from_file(self.path.clone())
+    pub fn get_path<'a>(&'a self) -> &'a Path {
+        &self.path
     }
     
     pub fn from_file(path: Path) -> BonzoResult<Database> {
