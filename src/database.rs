@@ -100,11 +100,14 @@ impl Database {
     }
 
     pub fn get_subdirectories(&self, directory_id: uint) -> SqliteResult<Vec<uint>> {
-        let mut directory_statement = try!(self.connection.prepare("SELECT id FROM directory WHERE parent_id = $1;"));
+        let mut statement = try!(self.connection.prepare("SELECT id FROM directory WHERE parent_id = $1;"));
         
-        let directories = try!(directory_statement.query(&[&(directory_id as i64)]));
-
-        directories.map(extract_uint).collect()
+        statement
+            .query(&[&(directory_id as i64)])
+            .and_then(|directories| directories
+                .map(extract_uint)
+                .collect()
+            )
     }
 
     pub fn get_directory_content_at(&self, directory_id: uint, timestamp: u64) -> SqliteResult<Vec<(uint, String)>> {

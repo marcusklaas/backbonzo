@@ -199,6 +199,10 @@ fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoRe
     let key = crypto::derive_key(password.as_slice());
     let decrypted_content = try!(crypto::decrypt_block(contents[], key[], &iv));
 
+    /* TODO: move this part to the database struct. from_bytes() --
+     * ah but maybe we cannot because the temp dir will go out of scope.
+     * it could be fine, but probably not */
+
     try!(write_to_disk(&decrypted_index_path, decrypted_content[]));
 
     Ok(decrypted_index_path)
