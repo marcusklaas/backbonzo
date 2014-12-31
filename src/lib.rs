@@ -56,17 +56,15 @@ pub struct BackupManager {
     database: Database,
     source_path: Path,
     backup_path: Path,
-    block_size: uint,
     encryption_key: Vec<u8>
 }
 
 impl BackupManager {
-    pub fn new(database_path: Path, source_path: Path, backup_path: Path, block_size: uint, password: String) -> BonzoResult<BackupManager> {
+    pub fn new(database_path: Path, source_path: Path, backup_path: Path, password: String) -> BonzoResult<BackupManager> {
         let manager = BackupManager {
             database: try!(Database::from_file(database_path)),
             source_path: source_path,
             backup_path: backup_path,
-            block_size: block_size,
             encryption_key: crypto::derive_key(password.as_slice())
         };
 
@@ -75,11 +73,11 @@ impl BackupManager {
         Ok(manager)
     }
 
-    pub fn update(&mut self, deadline: time::Tm) -> BonzoResult<()> {
+    pub fn update(&mut self, block_bytes: uint, deadline: time::Tm) -> BonzoResult<()> {
         let rx = export::start_export_thread(
             self.database.get_path(),
             self.encryption_key.clone(),
-            self.block_size,
+            block_bytes,
             self.source_path.clone()
         );
         
@@ -177,15 +175,15 @@ pub fn init(database_path: Path, password: String) -> BonzoResult<()> {
 }
 
 pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: uint, password: String, deadline: time::Tm) -> BonzoResult<()> {
-    let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, block_bytes, password));
+    let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, password));
             
-    manager.update(deadline).and(manager.export_index())
+    manager.update(block_bytes, deadline).and(manager.export_index())
 }
 
-pub fn restore(source_path: Path, backup_path: Path, block_bytes: uint, password: String, timestamp: u64) -> BonzoResult<()> {
+pub fn restore(source_path: Path, backup_path: Path, password: String, timestamp: u64) -> BonzoResult<()> {
     let temp_directory = try!(TempDir::new("bonzo"));
     let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), password.as_slice()));
-    let manager = try!(BackupManager::new(decrypted_index_path, source_path, backup_path, block_bytes, password));
+    let manager = try!(BackupManager::new(decrypted_index_path, source_path, backup_path, password));
     
     manager.restore(timestamp)
 }

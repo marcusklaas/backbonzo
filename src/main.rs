@@ -58,7 +58,7 @@ fn main() {
 
     let result = match args.arg_OPERATION {
         Operation::Init    => init(database_path, args.flag_key),
-        Operation::Restore => restore(source_path, backup_path, block_bytes, args.flag_key, timestamp),
+        Operation::Restore => restore(source_path, backup_path, args.flag_key, timestamp),
         Operation::Backup  => backup(database_path, source_path, backup_path, block_bytes, args.flag_key, deadline)
     };
     
