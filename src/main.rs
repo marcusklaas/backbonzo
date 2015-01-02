@@ -29,7 +29,7 @@ Options:
   -b --blocksize=<bs>        Size of blocks in megabytes [default: 1].
   -t --timestamp=<mseconds>  State to restore to in milliseconds since epoch [default: 0].
   -T --timeout=<seconds>     Maximum execution time in seconds [default: 0].
-  -f --filter=<exp>          Regular expression for paths [default: .+].
+  -f --filter=<exp>          Regular expression for paths [default: **].
 ", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String, flag_timestamp: u64, flag_timeout: u64, flag_filter: String);
 
 static DATABASE_FILENAME: &'static str = "index.db3";
@@ -58,7 +58,7 @@ fn main() {
 
     let result = match args.arg_OPERATION {
         Operation::Init    => init(database_path, args.flag_key),
-        Operation::Restore => restore(source_path, backup_path, args.flag_key, timestamp),
+        Operation::Restore => restore(source_path, backup_path, args.flag_key, timestamp, args.flag_filter),
         Operation::Backup  => backup(database_path, source_path, backup_path, block_bytes, args.flag_key, deadline)
     };
     

@@ -4,6 +4,7 @@ use std::path::Path;
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
 use std::comm::sync_channel;
+use std::iter::repeat;
 
 use bzip2::CompressionLevel;
 use bzip2::reader::BzCompressor;
@@ -37,7 +38,7 @@ struct FileComplete {
 
 pub struct Blocks<'a> {
     file: File,
-    buffer: Box<[u8]>
+    buffer: Vec<u8>
 }
 
 impl<'a> Blocks<'a> {
@@ -46,7 +47,7 @@ impl<'a> Blocks<'a> {
         
         Ok(Blocks {
             file: file,
-            buffer: Vec::from_elem(block_size, 0).into_boxed_slice()
+            buffer: repeat(0).take(block_size).collect()
         })
     }
     
@@ -114,7 +115,6 @@ impl ExportBlockSender {
         ).fold(Ok(()), |a, b| a.and(b))
     }
 
-    #[allow(unused_must_use)]
     fn export_file(&self, directory_id: uint, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
         if self.database.alias_known(directory_id, filename.as_slice(), last_modified) {           
             return Ok(());
@@ -133,7 +133,7 @@ impl ExportBlockSender {
             block_id_list.push(try!(self.export_block(slice)));
         }
         
-        self.sender.send_opt(FileInstruction::Complete(FileComplete {
+        let _ = self.sender.send_opt(FileInstruction::Complete(FileComplete {
             filename: filename,
             hash: hash,
             last_modified: last_modified,
@@ -144,7 +144,6 @@ impl ExportBlockSender {
         Ok(())
     }
 
-    #[allow(unused_must_use)]
     pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<uint>> {
         let hash = crypto::hash_block(block);
 
@@ -153,7 +152,7 @@ impl ExportBlockSender {
         }
 
         /* TODO: we could replace the vector in FileBlock by a 16 byte array */
-        let mut iv = Vec::from_elem(16, 0u8);
+        let mut iv = repeat(0).take(16).collect::<Vec<u8>>();
         let mut rng = try!(OsRng::new()); // FIXME: make one rng at struct creation and recycle?
 
         rng.fill_bytes(iv.as_mut_slice());
@@ -161,7 +160,7 @@ impl ExportBlockSender {
         let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
         let compressed_bytes = try!(compressor.read_to_end());
 
-        self.sender.send_opt(FileInstruction::NewBlock(FileBlock {
+        let _ = self.sender.send_opt(FileInstruction::NewBlock(FileBlock {
             bytes: try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice())),
             iv: iv,
             hash: hash

@@ -5,6 +5,7 @@ extern crate "crypto" as rust_crypto;
 extern crate serialize;
 extern crate time;
 extern crate bzip2;
+extern crate glob;
 
 use std::io::{IoError, IoResult, TempDir, BufReader};
 use std::io::fs::{unlink, copy, File, mkdir_recursive};
@@ -15,6 +16,7 @@ use std::collections::RingBuf;
 use rusqlite::SqliteError;
 use rust_crypto::symmetriccipher::SymmetricCipherError;
 use bzip2::reader::BzDecompressor;
+use glob::Pattern;
 
 use export::FileInstruction;
 use database::Database;
@@ -114,8 +116,11 @@ impl BackupManager {
         Ok(())
     }
 
-    pub fn restore(&self, timestamp: u64) -> BonzoResult<()> {
+    pub fn restore(&self, timestamp: u64, filter: String) -> BonzoResult<()> {
+        let pattern = Pattern::new(filter.as_slice());
+        
         try!(database::Aliases::new(&self.database, self.source_path.clone(), 0, timestamp))
+            .filter(|&(ref path, _)| pattern.matches_path(path))
             .map(|(path, block_list)| self.restore_file(&path, block_list.as_slice()))
             .fold(Ok(()), |a, b| a.and(b))
     }
@@ -180,12 +185,12 @@ pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_b
     manager.update(block_bytes, deadline).and(manager.export_index())
 }
 
-pub fn restore(source_path: Path, backup_path: Path, password: String, timestamp: u64) -> BonzoResult<()> {
+pub fn restore(source_path: Path, backup_path: Path, password: String, timestamp: u64, filter: String) -> BonzoResult<()> {
     let temp_directory = try!(TempDir::new("bonzo"));
     let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), password.as_slice()));
     let manager = try!(BackupManager::new(decrypted_index_path, source_path, backup_path, password));
     
-    manager.restore(timestamp)
+    manager.restore(timestamp, filter)
 }
 
 fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoResult<Path> {

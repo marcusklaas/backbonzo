@@ -12,7 +12,7 @@ rusqlite = "*"
 docopt = "*"
 docopt_macros = "*"
 time = "*"
-regex = "*"
+glob = "*"
 rustc-serialize = "*"
 rust-crypto = "*"
 

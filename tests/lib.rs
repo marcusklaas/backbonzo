@@ -3,7 +3,7 @@ extern crate time;
 
 use backbonzo::BonzoError;
 use std::io::TempDir;
-use std::io::fs::{File, PathExtensions};
+use std::io::fs::{File, PathExtensions, mkdir_recursive};
 use std::time::duration::Duration;
 //use std::rand::{Rng, OsRng};
 
@@ -68,7 +68,8 @@ fn backup_no_init() {
         destination_path,
         1000000,
         String::from_str("differentpassword"),
-        deadline);
+        deadline
+    );
 
     let is_expected = match backup_result {
         Err(BonzoError::Database(e)) => e.message.as_slice() == "unable to open database file",
@@ -88,11 +89,17 @@ fn backup_and_restore() {
     let password = String::from_str("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
-    let file_path = source_path.join("welcome.txt");
+    assert!(mkdir_recursive(&source_path.join("test"), std::io::FilePermission::all()).is_ok());
+
+    let filenames = ["test/welcome.txt", "welco.yolo", "smth_diffrent.jpg"];
     let bytes = "Hello, world!".as_bytes();
-    let mut file = File::create(&file_path).unwrap();
-    assert!(file.write(bytes).is_ok());
-    assert!(file.fsync().is_ok());
+
+    for filename in filenames.iter() {
+        let file_path = source_path.join(filename);
+        let mut file = File::create(&file_path).unwrap();
+        assert!(file.write(bytes).is_ok());
+        assert!(file.fsync().is_ok());
+    }
 
     assert!(backbonzo::init(database_path.clone(), password.clone()).is_ok());
 
@@ -102,7 +109,8 @@ fn backup_and_restore() {
         destination_path.clone(),
         1000000,
         password.clone(),
-        deadline);
+        deadline
+    );
 
     assert!(backup_result.is_ok());
 
@@ -113,18 +121,21 @@ fn backup_and_restore() {
     let restore_result = backbonzo::restore(
         restore_path.clone(),
         destination_path.clone(),
-        1000000,
         password.clone(),
-        timestamp
+        timestamp,
+        String::from_str("**/welco*")
     );
 
     assert!(restore_result.is_ok());
 
-    let restored_file_path = restore_path.join("welcome.txt");
+    let restored_file_path = restore_path.join("welco.yolo");
 
     assert!(restored_file_path.exists());
 
     let mut restored_file = File::open(&restored_file_path).unwrap();
 
     assert_eq!(bytes, restored_file.read_to_end().unwrap().as_slice());
+
+    assert!(!restore_path.join("smth_diffrent.jpg").exists());
+    assert!(restore_path.join("test/welcome.txt").exists());
 }

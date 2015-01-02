@@ -10,6 +10,7 @@ use super::rust_crypto::hmac::Hmac;
 
 use super::export::Blocks;
 use std::io::IoResult;
+use std::iter::repeat;
 
 pub fn hash_password(password: &str) -> IoResult<String> {
     let params = ScryptParams::new(12, 6, 1);
@@ -30,7 +31,7 @@ pub fn check_password(password: &str, hash: &str) -> bool {
 // information on the key used for {en,de}cryption.
 pub fn derive_key(password: &str) -> Vec<u8> {
     let salt = [0, ..16];
-    let mut derived_key = Vec::from_elem(32, 0);
+    let mut derived_key = repeat(0).take(32).collect::<Vec<u8>>();
     let mut mac = Hmac::new(Sha256::new(), password.as_bytes());
     
     pbkdf2(&mut mac, &salt, 100000, derived_key.as_mut_slice());

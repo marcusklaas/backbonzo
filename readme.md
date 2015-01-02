@@ -39,12 +39,12 @@ At this time it is possible to create and restore encrypted backups. Functionali
 priority todo list
 ------------------
 
-- [ ] implement partial decryption command
 - [ ] write some documentation on how to use backbonzo
 - [ ] take parameters/ read from configuration file
 - [ ] add tests
 - [ ] implement simple logging
 - [ ] add clean up command
+- [x] implement partial restoration
 - [x] deflate blocks before encryption
 - [x] find a way to deal with empty files
 - [x] deal with renames of files
