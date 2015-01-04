@@ -30,7 +30,7 @@ Options:
   -t --timestamp=<mseconds>  State to restore to in milliseconds since epoch [default: 0].
   -T --timeout=<seconds>     Maximum execution time in seconds [default: 0].
   -f --filter=<exp>          Regular expression for paths [default: **].
-", arg_OPERATION: Operation, flag_blocksize: uint, flag_key: String, flag_timestamp: u64, flag_timeout: u64, flag_filter: String);
+", arg_OPERATION: Operation, flag_blocksize: u32, flag_key: String, flag_timestamp: u64, flag_timeout: u64, flag_filter: String);
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 
@@ -66,11 +66,13 @@ fn main() {
 }
 
 fn handle_result<T>(result: BonzoResult<T>) {
+    let mut stderr = std::io::stderr();
+    
     match result {
         Ok(..)                       => println!("Done!"),
-        Err(BonzoError::Database(e)) => println!("Database error: {}", e.message),
-        Err(BonzoError::Io(e))       => println!("IO error: {}", e.desc),
-        Err(BonzoError::Crypto(..))  => println!("Crypto error!"),
-        Err(BonzoError::Other(str))  => println!("Error: {}", str)
+        Err(BonzoError::Database(e)) => { let _ = writeln!(&mut stderr, "Database error: {}", e.message); },
+        Err(BonzoError::Io(e))       => { let _ = writeln!(&mut stderr, "IO error: {}", e.desc); },
+        Err(BonzoError::Crypto(..))  => { let _ = writeln!(&mut stderr, "Crypto error!"); },
+        Err(BonzoError::Other(str))  => { let _ = writeln!(&mut stderr, "Error: {}", str) ; }
     }
 }

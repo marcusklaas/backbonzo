@@ -32,8 +32,8 @@ struct FileComplete {
     pub filename: String,
     pub hash: String,
     pub last_modified: u64,
-    pub directory_id: uint,
-    pub block_id_list: Vec<Option<uint>>
+    pub directory_id: u32,
+    pub block_id_list: Vec<Option<u32>>
 }
 
 pub struct Blocks<'a> {
@@ -42,32 +42,34 @@ pub struct Blocks<'a> {
 }
 
 impl<'a> Blocks<'a> {
-    pub fn from_path(path: &Path, block_size: uint) -> IoResult<Blocks> {
-        let file = try!(File::open(path));
-        
+    pub fn from_path(path: &Path, block_size: u32) -> IoResult<Blocks> {
         Ok(Blocks {
-            file: file,
-            buffer: repeat(0).take(block_size).collect()
+            file: try!(File::open(path)),
+            buffer: repeat(0).take(block_size as uint).collect()
         })
     }
     
     pub fn next(&'a mut self) -> Option<&'a [u8]> {
-        match self.file.read(&mut *self.buffer) {
+        match self.file.read(self.buffer.as_mut_slice()) {
             Err(..)   => None,
-            Ok(bytes) => Some(self.buffer[0..bytes])
+            Ok(bytes) => Some(self.buffer.slice(0, bytes))
         }
+
+        //self.file.read(self.buffer.as_mut_slice()).map(|bytes| {
+        //    self.buffer.slice(0, bytes)
+        //}).ok()
     }
 }
 
 pub struct ExportBlockSender {
     database: Database,
     encryption_key: Vec<u8>,
-    block_size: uint,
+    block_size: u32,
     sender: SyncSender<FileInstruction>
 }
 
 impl ExportBlockSender {
-    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: uint, sender: SyncSender<FileInstruction>) -> ExportBlockSender {
+    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: SyncSender<FileInstruction>) -> ExportBlockSender {
         ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
@@ -76,7 +78,7 @@ impl ExportBlockSender {
         }
     }
 
-    pub fn export_directory(&self, path: &Path, directory_id: uint) -> BonzoResult<()> {
+    pub fn export_directory(&self, path: &Path, directory_id: u32) -> BonzoResult<()> {
         let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
             .and_then(|list| list.into_iter()
                 .map(|path| match path.stat() {
@@ -115,7 +117,7 @@ impl ExportBlockSender {
         ).fold(Ok(()), |a, b| a.and(b))
     }
 
-    fn export_file(&self, directory_id: uint, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
+    fn export_file(&self, directory_id: u32, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
         if self.database.alias_known(directory_id, filename.as_slice(), last_modified) {           
             return Ok(());
         }
@@ -144,7 +146,7 @@ impl ExportBlockSender {
         Ok(())
     }
 
-    pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<uint>> {
+    pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<u32>> {
         let hash = crypto::hash_block(block);
 
         if let Some(id) = self.database.block_id_from_hash(hash.as_slice()) {
@@ -170,7 +172,7 @@ impl ExportBlockSender {
     }
 }
 
-pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: uint, source_path: Path) -> Receiver<FileInstruction> {
+pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> Receiver<FileInstruction> {
     let (tx, rx) = sync_channel::<FileInstruction>(5);
     let path = database_path.clone();
 
