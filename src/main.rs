@@ -1,5 +1,6 @@
 #![feature(phase)]
 #![feature(old_orphan_check)]
+#![cfg(not(test))]
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate backbonzo;
@@ -66,6 +67,8 @@ fn main() {
     handle_result(result);
 }
 
+// Writes the result of the program to stdio in case of success, or stderr when
+// it failed
 fn handle_result<T>(result: BonzoResult<T>) {
     let mut stderr = std::io::stderr();
     

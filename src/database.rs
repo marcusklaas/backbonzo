@@ -13,6 +13,8 @@ pub use self::rusqlite::SqliteError;
 
 // TODO: abstractify database error
 
+// An iterator over files in a state determined by the given timestamp. A file
+// is represented by its path and a list of block id's. 
 pub struct Aliases<'a> {
     database: &'a Database,
     path: Path,

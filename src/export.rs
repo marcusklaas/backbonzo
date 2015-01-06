@@ -4,7 +4,7 @@ use std::path::Path;
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
 use std::sync::mpsc::{SyncSender, Receiver, sync_channel};
-use std::iter::repeat;
+use std::mem::forget;
 
 use bzip2::CompressionLevel;
 use bzip2::reader::BzCompressor;
@@ -13,20 +13,30 @@ use super::database::Database;
 use super::crypto;
 use super::{BonzoResult, BonzoError};
 
+static CHANNEL_BUFFER_SIZE: uint = 5;
+
+// Specification of messsages sent over the channel. No message is sent for
+// completion, we simply hang up our end of the channel.
 pub enum FileInstruction {
     NewBlock(FileBlock),
     Complete(FileComplete),
     Error(BonzoError)
 }
 
+// Sent after the encryption and compression of a block is completed. It is the
+// receiver's resposibility to write the bytes to disk and persist the details
+// to the index
 struct FileBlock {
     pub bytes: Vec<u8>,
-    pub iv: Vec<u8>,
+    pub iv: Box<[u8; 16]>,
     pub hash: String
 }
 
-// known blocks are represented by Some(id), and new blocks are represented by
-// None as we don't known the id in the thread that does the encryption
+// This is sent *after* all the blocks of a file have been transferred. It is
+// the receiver's responsibility to persist the file to the index. The block
+// id list is encoded as a vector of Options. Known blocks are represented by
+// Some(id), and new blocks are represented by None as we don't known the id
+// before they are persisted to the index
 struct FileComplete {
     pub filename: String,
     pub hash: String,
@@ -35,6 +45,8 @@ struct FileComplete {
     pub block_id_list: Vec<Option<u32>>
 }
 
+/* FIXME: move me somewhere else -- probably lib.rs */
+
 pub struct Blocks<'a> {
     file: File,
     buffer: Vec<u8>
@@ -42,9 +54,16 @@ pub struct Blocks<'a> {
 
 impl<'a> Blocks<'a> {
     pub fn from_path(path: &Path, block_size: u32) -> IoResult<Blocks> {
+        let mut vec = Vec::with_capacity(block_size as uint);
+        let pointer = vec.as_mut_ptr();
+        
         Ok(Blocks {
             file: try!(File::open(path)),
-            buffer: repeat(0).take(block_size as uint).collect()
+            buffer: unsafe {
+                forget(vec);
+                
+                Vec::from_raw_parts(pointer, block_size as uint, block_size as uint)
+            }
         })
     }
     
@@ -53,32 +72,31 @@ impl<'a> Blocks<'a> {
             Err(..)   => None,
             Ok(bytes) => Some(self.buffer.slice(0, bytes))
         }
-
-        //self.file.read(self.buffer.as_mut_slice()).map(|bytes| {
-        //    self.buffer.slice(0, bytes)
-        //}).ok()
     }
 }
 
+// Manager which walks the file system and splits the found files into blocks
+// -- TBC
 pub struct ExportBlockSender {
     database: Database,
     encryption_key: Vec<u8>,
     block_size: u32,
-    sender: SyncSender<FileInstruction>
+    sender: SyncSender<FileInstruction>,
+    rng: OsRng
 }
 
 impl ExportBlockSender {
-    // FIXME: this method is senseless
-    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: SyncSender<FileInstruction>) -> ExportBlockSender {
-        ExportBlockSender {
+    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: SyncSender<FileInstruction>) -> BonzoResult<ExportBlockSender> {
+        Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
             block_size: block_size,
-            sender: sender
-        }
+            sender: sender,
+            rng: try!(OsRng::new())
+        })
     }
 
-    pub fn export_directory(&self, path: &Path, directory_id: u32) -> BonzoResult<()> {
+    pub fn export_directory(&mut self, path: &Path, directory_id: u32) -> BonzoResult<()> {
         let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
             .and_then(|list| list.into_iter()
                 .map(|path| match path.stat() {
@@ -112,12 +130,13 @@ impl ExportBlockSender {
             }
         }
 
+        // FIXME: this traverses the whole list, even if we find a None early on
         deleted_filenames.iter().map(|filename|
             self.database.persist_null_alias(directory_id, filename.as_slice())
         ).fold(Ok(()), |a, b| a.and(b))
     }
 
-    fn export_file(&self, directory_id: u32, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
+    fn export_file(&mut self, directory_id: u32, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
         if self.database.alias_known(directory_id, filename.as_slice(), last_modified) {           
             return Ok(());
         }
@@ -146,18 +165,15 @@ impl ExportBlockSender {
         Ok(())
     }
 
-    pub fn export_block(&self, block: &[u8]) -> BonzoResult<Option<u32>> {
+    pub fn export_block(&mut self, block: &[u8]) -> BonzoResult<Option<u32>> {
         let hash = crypto::hash_block(block);
 
         if let Some(id) = self.database.block_id_from_hash(hash.as_slice()) {
             return Ok(Some(id))
         }
 
-        /* TODO: we could replace the vector in FileBlock by a 16 byte array */
-        let mut iv = repeat(0).take(16).collect::<Vec<u8>>();
-        let mut rng = try!(OsRng::new()); // FIXME: make one rng at struct creation and recycle?
-
-        rng.fill_bytes(iv.as_mut_slice());
+        let mut iv = box [0u8; 16];
+        self.rng.fill_bytes(iv.as_mut_slice());
 
         let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
         let compressed_bytes = try!(compressor.read_to_end());
@@ -173,8 +189,7 @@ impl ExportBlockSender {
 }
 
 pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> Receiver<FileInstruction> {
-    // FIXME: make this literal a constant
-    let (tx, rx) = sync_channel::<FileInstruction>(5);
+    let (tx, rx) = sync_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
     let path = database_path.clone();
 
     Thread::spawn(move|| {
@@ -182,7 +197,8 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_
             Err(e) => Err(e),
             Ok(database) => {
                 ExportBlockSender::new(database, encryption_key, block_size, tx.clone())
-                    .export_directory(&source_path, 0)
+                    .and_then(|mut exporter| exporter
+                    .export_directory(&source_path, 0))
             }
         };
     

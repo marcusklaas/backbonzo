@@ -73,6 +73,9 @@ impl BackupManager {
         Ok(manager)
     }
 
+    // Update the state of the backup. Starts a walker thread and listens
+    // to its messages. Exits after the time has surpassed the deadline, even
+    // when the update hasn't been fully completed
     pub fn update(&mut self, block_bytes: u32, deadline: time::Tm) -> BonzoResult<()> {
         let channel_receiver = export::start_export_thread(
             self.database.get_path(),
@@ -128,6 +131,8 @@ impl BackupManager {
             .fold(Ok(()), |a, b| a.and(b))
     }
 
+    // Restores a single file by decrypting and inflating a sequence of blocks
+    // and writing them to the given path in order
     pub fn restore_file(&self, path: &Path, block_list: &[u32]) -> BonzoResult<()> {
         try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all()));
         
@@ -149,6 +154,8 @@ impl BackupManager {
         Ok(())
     }
 
+    // Returns an error when the given password does not match the one saved
+    // in the index
     fn check_password(&self, password: &str) -> BonzoResult<()> {
         let hash = self.database.get_key("password");
         let real_hash = try!(hash.ok_or(BonzoError::Other(format!("Saved hash is NULL"))));
@@ -159,6 +166,7 @@ impl BackupManager {
         }
     }
 
+    // 
     fn export_index(self) -> BonzoResult<()> {
         let bytes = try!(self.database.to_bytes());
         let iv = [0u8; 16];
@@ -213,6 +221,7 @@ fn block_output_path(base_path: &Path, hash: &str) -> Path {
     base_path.join_many(&[hash.slice(0, 2), hash])
 }
 
+// FIXME: this will call fsync even when write fails
 fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
     File::create(path).and_then(|mut file| {
         file.write(bytes).and(file.fsync())
