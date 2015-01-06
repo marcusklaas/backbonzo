@@ -1,4 +1,5 @@
 #![feature(phase)]
+#![feature(old_orphan_check)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate backbonzo;
@@ -12,7 +13,7 @@ use docopt::Docopt;
 use std::time::duration::Duration;
 use backbonzo::{init, backup, restore, BonzoError, BonzoResult};
 
-docopt!(Args deriving Show, "
+docopt!(Args derive Show, "
 backbonzo
 
 Usage:
@@ -34,7 +35,7 @@ Options:
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 
-#[deriving(Show, RustcDecodable)]
+#[derive(Show, RustcDecodable)]
 enum Operation {
     Init,
     Backup,
@@ -71,7 +72,7 @@ fn handle_result<T>(result: BonzoResult<T>) {
     match result {
         Ok(..)                       => println!("Done!"),
         Err(BonzoError::Database(e)) => { let _ = writeln!(&mut stderr, "Database error: {}", e.message); },
-        Err(BonzoError::Io(e))       => { let _ = writeln!(&mut stderr, "IO error: {}", e.desc); },
+        Err(BonzoError::Io(e))       => { let _ = writeln!(&mut stderr, "IO error: {}, {}", e.desc, e.detail.unwrap_or_default()); },
         Err(BonzoError::Crypto(..))  => { let _ = writeln!(&mut stderr, "Crypto error!"); },
         Err(BonzoError::Other(str))  => { let _ = writeln!(&mut stderr, "Error: {}", str) ; }
     }

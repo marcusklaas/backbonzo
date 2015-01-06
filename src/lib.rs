@@ -1,3 +1,5 @@
+#![feature(associated_types)]
+
 extern crate serialize;
 extern crate time;
 extern crate bzip2;
@@ -8,6 +10,7 @@ use std::io::fs::{unlink, copy, File, mkdir_recursive};
 use std::error::FromError;
 use std::path::Path;
 use std::collections::RingBuf;
+use std::cmp::Ordering;
 
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
@@ -26,6 +29,8 @@ pub enum BonzoError {
     Crypto(SymmetricCipherError),
     Other(String)
 }
+
+// TODO: once again put directory id in enum
 
 impl FromError<IoError> for BonzoError {
     fn from_error(error: IoError) -> BonzoError {
@@ -69,7 +74,7 @@ impl BackupManager {
     }
 
     pub fn update(&mut self, block_bytes: u32, deadline: time::Tm) -> BonzoResult<()> {
-        let rx = export::start_export_thread(
+        let channel_receiver = export::start_export_thread(
             self.database.get_path(),
             self.encryption_key.clone(),
             block_bytes,
@@ -78,14 +83,13 @@ impl BackupManager {
         
         let mut id_queue: RingBuf<u32> = RingBuf::new();
 
-        while deadline.cmp(&time::now_utc()) == Ordering::Greater {
-            match rx.recv() {
-                FileInstruction::Done     => break,
+        for msg in channel_receiver.iter() {
+            match msg {
                 FileInstruction::Error(e) => return Err(e),
                 FileInstruction::NewBlock(block) => {
                     let path = block_output_path(&self.backup_path, block.hash.as_slice());
                     
-                    try!(mkdir_recursive(&path, std::io::FilePermission::all())
+                    try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
                         .and(write_to_disk(&path, block.bytes.as_slice())));
         
                     try!(self.database.persist_block(block.hash.as_slice(), block.iv.as_slice())
@@ -105,6 +109,10 @@ impl BackupManager {
                         real_id_list.as_slice()
                     ));
                 }
+            }
+
+            if deadline.cmp(&time::now_utc()) != Ordering::Greater {
+                break;
             }
         }
 
@@ -153,7 +161,7 @@ impl BackupManager {
 
     fn export_index(self) -> BonzoResult<()> {
         let bytes = try!(self.database.to_bytes());
-        let iv = [0u8, ..16];
+        let iv = [0u8; 16];
         let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), &iv));
         let new_index = self.backup_path.join("index-new");
         let index = self.backup_path.join("index");
@@ -186,12 +194,13 @@ pub fn restore(source_path: Path, backup_path: Path, password: String, timestamp
     manager.restore(timestamp, filter)
 }
 
+// TODO: find a better solution for this
 fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoResult<Path> {
     let encrypted_index_path = backup_path.join("index");
     let decrypted_index_path = temp_dir.join("index.db3");
     let mut file = try!(File::open(&encrypted_index_path));
     let contents = try!(file.read_to_end());
-    let iv = [0u8, ..16];
+    let iv = [0u8; 16];
     let key = crypto::derive_key(password.as_slice());
     let decrypted_content = try!(crypto::decrypt_block(contents[], key[], &iv));
 

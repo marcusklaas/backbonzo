@@ -11,6 +11,8 @@ use serialize::hex::{ToHex, FromHex};
 
 pub use self::rusqlite::SqliteError;
 
+// TODO: abstractify database error
+
 pub struct Aliases<'a> {
     database: &'a Database,
     path: Path,
@@ -33,7 +35,9 @@ impl<'a> Aliases<'a> {
     }
 }
 
-impl<'a> Iterator<(Path, Vec<u32>)> for Aliases<'a> {
+impl<'a> Iterator for Aliases<'a> {
+    type Item = (Path, Vec<u32>);
+    
     fn next(&mut self) -> Option<(Path, Vec<u32>)> {
         // return file from child directory
         loop {
@@ -68,6 +72,8 @@ pub struct Database {
     path: Path
 }
 
+// TODO: can we not make database a trait and let it be implemented using sqlite?
+// also, should we have one monolytic class which contains all queries?
 impl Database {
     fn new(path: Path, flags: SqliteOpenFlags) -> BonzoResult<Database> {
         Ok(Database {

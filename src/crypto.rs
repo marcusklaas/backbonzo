@@ -33,7 +33,7 @@ pub fn check_password(password: &str, hash: &str) -> bool {
 // the password for storage. One could otherwise use the stored hash to gain
 // information on the key used for {en,de}cryption.
 pub fn derive_key(password: &str) -> Vec<u8> {
-    let salt = [0, ..16];
+    let salt = [0; 16];
     let mut derived_key = repeat(0).take(32).collect::<Vec<u8>>();
     let mut mac = Hmac::new(Sha256::new(), password.as_bytes());
     
@@ -64,7 +64,7 @@ pub fn hash_block(block: &[u8]) -> String {
 pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     let mut encryptor = cbc_encryptor(KeySize::KeySize256, key, iv, PkcsPadding);
     let mut final_result = Vec::<u8>::new();
-    let mut buffer = [0, ..4096];
+    let mut buffer = [0; 4096];
     let mut read_buffer = RefReadBuffer::new(block);
     let mut write_buffer = RefWriteBuffer::new(&mut buffer);
 
@@ -80,7 +80,7 @@ pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
 pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
     let mut decryptor = cbc_decryptor(KeySize::KeySize256, key, iv, PkcsPadding);
     let mut final_result = Vec::<u8>::new();
-    let mut buffer = [0, ..4096];
+    let mut buffer = [0; 4096];
     let mut read_buffer = RefReadBuffer::new(block);
     let mut write_buffer = RefWriteBuffer::new(&mut buffer);
 
@@ -101,8 +101,8 @@ mod test {
     #[test]
     fn aes_encryption_decryption() {
         let message = "Hello World!";
-        let mut key: [u8, ..32] = [0, ..32];
-        let mut iv: [u8, ..16] = [0, ..16];
+        let mut key: [u8; 32] = [0; 32];
+        let mut iv: [u8; 16] = [0; 16];
         let mut rng = OsRng::new().ok().unwrap();
         
         rng.fill_bytes(&mut key);
@@ -112,5 +112,12 @@ mod test {
         let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key, &iv).ok().unwrap();
 
         assert!(message.as_bytes() == decrypted_data.as_slice());
+    }
+
+    #[test]
+    fn key_derivation() {
+        let key: Vec<u8> = super::derive_key("test");
+
+        assert_eq!(32u, key.len());
     }
 }

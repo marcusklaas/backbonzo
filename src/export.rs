@@ -3,7 +3,7 @@ use std::io::fs::{readdir, File, PathExtensions};
 use std::path::Path;
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
-use std::comm::sync_channel;
+use std::sync::mpsc::{SyncSender, Receiver, sync_channel};
 use std::iter::repeat;
 
 use bzip2::CompressionLevel;
@@ -16,8 +16,7 @@ use super::{BonzoResult, BonzoError};
 pub enum FileInstruction {
     NewBlock(FileBlock),
     Complete(FileComplete),
-    Error(BonzoError),
-    Done
+    Error(BonzoError)
 }
 
 struct FileBlock {
@@ -69,6 +68,7 @@ pub struct ExportBlockSender {
 }
 
 impl ExportBlockSender {
+    // FIXME: this method is senseless
     pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: SyncSender<FileInstruction>) -> ExportBlockSender {
         ExportBlockSender {
             database: database,
@@ -135,7 +135,7 @@ impl ExportBlockSender {
             block_id_list.push(try!(self.export_block(slice)));
         }
         
-        let _ = self.sender.send_opt(FileInstruction::Complete(FileComplete {
+        let _ = self.sender.try_send(FileInstruction::Complete(FileComplete {
             filename: filename,
             hash: hash,
             last_modified: last_modified,
@@ -162,7 +162,7 @@ impl ExportBlockSender {
         let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
         let compressed_bytes = try!(compressor.read_to_end());
 
-        let _ = self.sender.send_opt(FileInstruction::NewBlock(FileBlock {
+        let _ = self.sender.try_send(FileInstruction::NewBlock(FileBlock {
             bytes: try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice())),
             iv: iv,
             hash: hash
@@ -173,6 +173,7 @@ impl ExportBlockSender {
 }
 
 pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> Receiver<FileInstruction> {
+    // FIXME: make this literal a constant
     let (tx, rx) = sync_channel::<FileInstruction>(5);
     let path = database_path.clone();
 
@@ -185,11 +186,12 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_
             }
         };
     
-        tx.send(match result {
-            Ok(..) => FileInstruction::Done,
-            Err(e) => FileInstruction::Error(e)
-        })
+        if let Err(e) = result {
+            let _ = tx.send(FileInstruction::Error(e));
+        }
     }).detach();
 
     rx
+
+    // FIXME: are we sure all messages sent at this point will be seen by receiver?
 }
