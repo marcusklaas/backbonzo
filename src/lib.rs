@@ -78,7 +78,7 @@ impl BackupManager {
     // to its messages. Exits after the time has surpassed the deadline, even
     // when the update hasn't been fully completed
     pub fn update(&mut self, block_bytes: u32, deadline: time::Tm) -> BonzoResult<()> {
-        let channel_receiver = export::start_export_thread(
+        let (channel_receiver, rendezvous_sender) = export::start_export_thread(
             self.database.get_path(),
             self.encryption_key.clone(),
             block_bytes,
@@ -89,6 +89,7 @@ impl BackupManager {
 
         for msg in channel_receiver.iter() {
             match msg {
+                FileInstruction::Done => break,
                 FileInstruction::Error(e) => return Err(e),
                 FileInstruction::NewBlock(block) => {
                     let path = block_output_path(&self.backup_path, block.hash.as_slice());
@@ -119,6 +120,8 @@ impl BackupManager {
                 break;
             }
         }
+
+        let _ = rendezvous_sender.send(());
 
         Ok(())
     }
@@ -167,7 +170,8 @@ impl BackupManager {
         }
     }
 
-    // 
+    // Closes the database connection and saves it to the backup destination in
+    // encrypted form
     fn export_index(self) -> BonzoResult<()> {
         let bytes = try!(self.database.to_bytes());
         let iv = [0u8; 16];
@@ -227,4 +231,23 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
     File::create(path).and_then(|mut file| {
         file.write(bytes).and(file.fsync())
     })
+}
+
+#[cfg(test)]
+mod test {
+    use std::io::TempDir;
+    use std::io::fs::File;
+    
+    #[test]
+    fn write_to_disk() {
+        let temp_dir = TempDir::new("write-test").unwrap();
+        let file_path = temp_dir.path().join("hello.txt");
+        let message = "what's up?";
+
+        let _ = super::write_to_disk(&file_path, message.as_bytes());
+
+        let mut file = File::open(&file_path).unwrap();
+
+        assert!(file.read_to_end().unwrap().as_slice() == message.as_bytes());
+    }
 }

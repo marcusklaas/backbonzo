@@ -3,7 +3,7 @@ use std::io::fs::{readdir, File, PathExtensions};
 use std::path::Path;
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
-use std::sync::mpsc::{SyncSender, Receiver, sync_channel};
+use std::sync::mpsc::{SyncSender, Sender, Receiver, sync_channel, channel};
 use std::mem::forget;
 
 use bzip2::CompressionLevel;
@@ -15,12 +15,12 @@ use super::{BonzoResult, BonzoError};
 
 static CHANNEL_BUFFER_SIZE: uint = 5;
 
-// Specification of messsages sent over the channel. No message is sent for
-// completion, we simply hang up our end of the channel.
+// Specification of messsages sent over the channel
 pub enum FileInstruction {
     NewBlock(FileBlock),
     Complete(FileComplete),
-    Error(BonzoError)
+    Error(BonzoError),
+    Done
 }
 
 // Sent after the encryption and compression of a block is completed. It is the
@@ -77,16 +77,16 @@ impl<'a> Blocks<'a> {
 
 // Manager which walks the file system and splits the found files into blocks
 // -- TBC
-pub struct ExportBlockSender {
+pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Vec<u8>,
     block_size: u32,
-    sender: SyncSender<FileInstruction>,
+    sender: &'sender SyncSender<FileInstruction>,
     rng: OsRng
 }
 
-impl ExportBlockSender {
-    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: SyncSender<FileInstruction>) -> BonzoResult<ExportBlockSender> {
+impl<'sender> ExportBlockSender<'sender> {
+    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: &'sender SyncSender<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
         Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
@@ -154,7 +154,7 @@ impl ExportBlockSender {
             block_id_list.push(try!(self.export_block(slice)));
         }
         
-        let _ = self.sender.try_send(FileInstruction::Complete(FileComplete {
+        let _ = self.sender.send(FileInstruction::Complete(FileComplete {
             filename: filename,
             hash: hash,
             last_modified: last_modified,
@@ -178,7 +178,7 @@ impl ExportBlockSender {
         let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
         let compressed_bytes = try!(compressor.read_to_end());
 
-        let _ = self.sender.try_send(FileInstruction::NewBlock(FileBlock {
+        let _ = self.sender.send(FileInstruction::NewBlock(FileBlock {
             bytes: try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice())),
             iv: iv,
             hash: hash
@@ -188,26 +188,84 @@ impl ExportBlockSender {
     }
 }
 
-pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> Receiver<FileInstruction> {
-    let (tx, rx) = sync_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
+pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> (Receiver<FileInstruction>, Sender<()>) {
+    let (transmitter, receiver) = sync_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
+    let (rendezvous_tx, rendezvous_rx) = channel::<()>(); // TODO: use sync channel?
     let path = database_path.clone();
 
     Thread::spawn(move|| {
         let result = match Database::from_file(path) {
             Err(e) => Err(e),
             Ok(database) => {
-                ExportBlockSender::new(database, encryption_key, block_size, tx.clone())
+                ExportBlockSender::new(database, encryption_key, block_size, &transmitter)
                     .and_then(|mut exporter| exporter
                     .export_directory(&source_path, 0))
             }
         };
     
         if let Err(e) = result {
-            let _ = tx.send(FileInstruction::Error(e));
+            let _ = transmitter.send(FileInstruction::Error(e));
+        } else {
+            let _ = transmitter.send(FileInstruction::Done);
         }
+
+        // Keep thread alive until the channel buffer has been cleared completely
+        let _ = rendezvous_rx.recv();
     }).detach();
 
-    rx
+    (receiver, rendezvous_tx)
+}
 
-    // FIXME: are we sure all messages sent at this point will be seen by receiver?
+#[cfg(test)]
+mod test {
+    #![allow(unused_must_use)]
+    
+    use std::io::TempDir;
+    use std::io::Timer;
+    use std::time::Duration;
+    
+    #[test]
+    fn channel_buffer() {
+        let temp_dir = TempDir::new("buffer-test").unwrap();
+
+        let file_count = 10 * super::CHANNEL_BUFFER_SIZE;
+
+        for i in range(0, file_count) {
+            let content = format!("file{}", i);
+            let file_path = temp_dir.path().join(content.as_slice());
+
+            super::super::write_to_disk(&file_path, content.as_bytes());
+        }
+
+        let password = format!("password123");
+        let database_path = temp_dir.path().join("index.db3");
+        let key = super::super::crypto::derive_key(password.as_slice());
+
+        super::super::init(database_path.clone(), password);
+
+        let (receiver, _) = super::start_export_thread(&database_path, key, 10000000, temp_dir.path().clone());
+
+        // give the export thread plenty of time to process all files
+        let mut timer = Timer::new().unwrap();
+        timer.sleep(Duration::milliseconds(500));
+
+        // we should receive two messages for each file: one for its block and
+        // one for the file completion. the index also counts as a file
+        // One file one when done
+        let expected_message_count = 1 + 2 * (file_count + 1);
+
+        let mut count = 0;
+
+        for msg in receiver.iter() {
+            count += 1;
+            
+            match msg {
+                super::FileInstruction::Done => break,
+                super::FileInstruction::Error(..) => panic!(),
+                _ => {}
+            }
+        }
+
+        assert_eq!(expected_message_count, count);
+    }
 }
