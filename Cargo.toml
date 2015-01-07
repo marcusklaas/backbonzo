@@ -8,16 +8,21 @@ authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 name = "backbonzo"
 
 [dependencies]
-rusqlite = "*"
 docopt = "*"
 docopt_macros = "*"
 time = "*"
 glob = "*"
 rustc-serialize = "*"
-rust-crypto = "*"
+
+[dependencies.rust-crypto]
+git = "https://github.com/fhartwig/rust-crypto"
+rev = "4b20015bd62685863343ccac8c88684e98467a28"
 
 [dependencies.bzip2]
 git = "https://github.com/alexcrichton/bzip2-rs"
+
+[dependencies.rusqlite]
+git = "https://github.com/marcusklaas/rusqlite"
 
 [[bin]]
 

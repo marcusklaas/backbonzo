@@ -13,6 +13,8 @@ pub use self::rusqlite::SqliteError;
 
 // TODO: abstractify database error
 
+// TODO: don't use sqlite query_row; it can panic
+
 // An iterator over files in a state determined by the given timestamp. A file
 // is represented by its path and a list of block id's. 
 pub struct Aliases<'a> {
@@ -116,10 +118,9 @@ impl Database {
         
         statement
             .query(&[&(directory_id as i64)])
-            .and_then(|directories| directories
-                .map(extract_u32)
-                .collect()
-            )
+            .and_then(|directories| {
+                directories.map(extract_u32).collect()
+            })
     }
 
     pub fn get_directory_content_at(&self, directory_id: u32, timestamp: u64) -> SqliteResult<Vec<(u32, String)>> {
@@ -131,11 +132,11 @@ impl Database {
         
         statement
             .query(&[&(directory_id as i64), &(timestamp as i64)])
-            .and_then(|result| result
-                .map(|row_result| row_result
-                    .map(|row| (row.get::<i64>(0) as u32, row.get(1)))
-                ).collect()
-            )
+            .and_then(|result| {
+                result.map(|row_result| {
+                    row_result.map(|row| (row.get::<i64>(0) as u32, row.get(1)))
+                }).collect()
+            })
     }
 
     pub fn get_directory_filenames(&self, directory_id: u32) -> SqliteResult<HashSet<String>> {
@@ -147,11 +148,11 @@ impl Database {
         
         statement
             .query(&[&(directory_id as i64)])
-            .and_then(|filenames| filenames
-                .map(|row_result| row_result
-                    .map(|row| row.get::<String>(0))
-                ).collect()
-            )
+            .and_then(|filenames| {
+                filenames.map(|row_result| {
+                    row_result.map(|row| row.get::<String>(0))
+                }).collect()
+            })
     }
 
     fn get_directory_name(&self, directory_id: u32) -> String {
@@ -165,9 +166,11 @@ impl Database {
     fn get_file_block_list(&self, file_id: u32) -> SqliteResult<Vec<u32>> {
         let mut statement = try!(self.connection.prepare("SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;"));
         
-        try!(statement.query(&[&(file_id as i64)]))
-            .map(extract_u32)
-            .collect()
+        statement
+            .query(&[&(file_id as i64)])
+            .and_then(|rows| {
+                rows.map(extract_u32).collect()
+            })
     }
 
     pub fn persist_file(&self, directory_id: u32, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
@@ -242,11 +245,11 @@ impl Database {
     }
 
     pub fn block_id_from_hash(&self, hash: &str) -> Option<u32> {
-        self.connection.query_row::<Option<i64>>(
+        self.connection.query_row(
             "SELECT SUM(id) FROM block WHERE hash = $1;",
             &[&hash],
-            |row| row.get(0)
-        ).map(|signed| signed as u32)
+            |&: row: SqliteRow| row.get::<Option<i64>>(0)
+        ).map(|&: signed: i64| signed as u32)
     }
 
     pub fn get_directory(&self, parent: u32, name: &str) -> SqliteResult<u32> {

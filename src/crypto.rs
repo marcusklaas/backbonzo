@@ -15,6 +15,8 @@ use std::iter::repeat;
 
 pub use self::rust_crypto::symmetriccipher::SymmetricCipherError;
 
+macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
+
 // Hashes a string using a strong cryptographic, including parameters
 // and salt in the result
 pub fn hash_password(password: &str) -> IoResult<String> {
@@ -74,11 +76,11 @@ pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
     let mut read_buffer = RefReadBuffer::new(block);
     let mut write_buffer = RefWriteBuffer::new(&mut buffer);
 
-    while let BufferResult::BufferOverflow = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true)) {
+    do_while_match!({
+        let result = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true));
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
-    }
-
-    final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+        result
+    }, BufferResult::BufferOverflow);
 
     Ok(final_result)
 } 
@@ -92,12 +94,11 @@ pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
     let mut read_buffer = RefReadBuffer::new(block);
     let mut write_buffer = RefWriteBuffer::new(&mut buffer);
 
-    /* TODO: make a macro for do-while loops */
-    while let BufferResult::BufferOverflow = {
+    do_while_match!({
         let result = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true));
         final_result.push_all(write_buffer.take_read_buffer().take_remaining());
         result
-    } {}
+    }, BufferResult::BufferOverflow);
 
     Ok(final_result)
 }
