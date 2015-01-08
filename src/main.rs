@@ -1,5 +1,4 @@
-#![feature(phase)]
-#![feature(old_orphan_check)]
+#![feature(plugin)]
 #![cfg(not(test))]
 
 extern crate "rustc-serialize" as rustc_serialize;
@@ -8,7 +7,7 @@ extern crate serialize;
 extern crate docopt;
 extern crate time;
 extern crate regex;
-#[phase(plugin)] extern crate docopt_macros;
+#[plugin] extern crate docopt_macros;
 
 use docopt::Docopt;
 use std::time::duration::Duration;

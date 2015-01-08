@@ -1,6 +1,3 @@
-#![feature(associated_types)]
-#![feature(macro_rules)]
-
 extern crate serialize;
 extern crate time;
 extern crate bzip2;
