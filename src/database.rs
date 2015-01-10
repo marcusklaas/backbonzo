@@ -268,7 +268,7 @@ impl Database {
             .and(Ok(self.connection.last_insert_rowid() as u32))
     }
 
-    pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<uint> {
+    pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<usize> {
         self.connection.execute("INSERT INTO setting (key, value) VALUES ($1, $2);", &[&key, &value])
     }
 

@@ -1,4 +1,5 @@
 #![feature(plugin)]
+#![allow(unstable)]
 #![cfg(not(test))]
 
 extern crate "rustc-serialize" as rustc_serialize;

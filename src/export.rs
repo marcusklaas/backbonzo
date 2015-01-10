@@ -13,7 +13,7 @@ use super::database::Database;
 use super::crypto;
 use super::{BonzoResult, BonzoError};
 
-static CHANNEL_BUFFER_SIZE: uint = 5;
+static CHANNEL_BUFFER_SIZE: usize = 5;
 
 // Specification of messsages sent over the channel
 pub enum FileInstruction {
@@ -54,7 +54,8 @@ pub struct Blocks<'a> {
 
 impl<'a> Blocks<'a> {
     pub fn from_path(path: &Path, block_size: u32) -> IoResult<Blocks> {
-        let mut vec = Vec::with_capacity(block_size as uint);
+        let machine_block_size = block_size as usize;
+        let mut vec = Vec::with_capacity(machine_block_size);
         let pointer = vec.as_mut_ptr();
         
         Ok(Blocks {
@@ -62,7 +63,7 @@ impl<'a> Blocks<'a> {
             buffer: unsafe {
                 forget(vec);
                 
-                Vec::from_raw_parts(pointer, block_size as uint, block_size as uint)
+                Vec::from_raw_parts(pointer, machine_block_size, machine_block_size)
             }
         })
     }
