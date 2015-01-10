@@ -172,7 +172,7 @@ impl<'sender> ExportBlockSender<'sender> {
             return Ok(Some(id))
         }
 
-        let mut iv = box [0u8; 16];
+        let mut iv = Box::new([0u8; 16]);
         self.rng.fill_bytes(iv.as_mut_slice());
 
         let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
@@ -211,7 +211,7 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_
 
         // Keep thread alive until the channel buffer has been cleared completely
         let _ = rendezvous_rx.recv();
-    }).detach();
+    });
 
     (receiver, rendezvous_tx)
 }

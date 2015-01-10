@@ -59,7 +59,7 @@ impl<'a> Iterator for Aliases<'a> {
                         self.path.join(self.database.get_directory_name(id)),
                         id,
                         self.timestamp
-                    ).ok().map(|alias| box alias)
+                    ).ok().map(|alias| Box::new(alias))
             }
         }
 

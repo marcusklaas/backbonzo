@@ -212,9 +212,9 @@ fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoRe
     let contents = try!(file.read_to_end());
     let iv = [0u8; 16];
     let key = crypto::derive_key(password.as_slice());
-    let decrypted_content = try!(crypto::decrypt_block(contents[], key[], &iv));
+    let decrypted_content = try!(crypto::decrypt_block(contents.as_slice(), key.as_slice(), &iv));
 
-    try!(write_to_disk(&decrypted_index_path, decrypted_content[]));
+    try!(write_to_disk(&decrypted_index_path, decrypted_content.as_slice()));
 
     Ok(decrypted_index_path)
 }

@@ -15,8 +15,7 @@ glob = "*"
 rustc-serialize = "*"
 
 [dependencies.rust-crypto]
-git = "https://github.com/marcusklaas/rust-crypto"
-rev = "8424ba0ff57829f673fbafdbbc4daa8ae2991609"
+git = "https://github.com/dagenix/rust-crypto"
 
 [dependencies.rusqlite]
 git = "https://github.com/jgallagher/rusqlite"
