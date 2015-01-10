@@ -6,13 +6,12 @@ extern crate "rustc-serialize" as rustc_serialize;
 extern crate backbonzo;
 extern crate docopt;
 extern crate time;
-#[plugin] extern crate docopt_macros;
 
 use docopt::Docopt;
 use std::time::duration::Duration;
 use backbonzo::{init, backup, restore, BonzoError, BonzoResult};
 
-docopt!(Args derive Show, "
+static USAGE: &'static str = "
 backbonzo
 
 Usage:
@@ -30,11 +29,24 @@ Options:
   -t --timestamp=<mseconds>  State to restore to in milliseconds since epoch [default: 0].
   -T --timeout=<seconds>     Maximum execution time in seconds [default: 0].
   -f --filter=<exp>          Regular expression for paths [default: **].
-", arg_OPERATION: Operation, flag_blocksize: u32, flag_key: String, flag_timestamp: u64, flag_timeout: u64, flag_filter: String);
+";
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 
-#[derive(Show, RustcDecodable)]
+#[derive(RustcDecodable, Show)]
+#[allow(non_snake_case)]
+struct Args {
+    pub arg_OPERATION: Operation,
+    pub flag_destination: String,
+    pub flag_source: String,
+    pub flag_blocksize: u32,
+    pub flag_key: String,
+    pub flag_timestamp: u64,
+    pub flag_timeout: u64,
+    pub flag_filter: String
+}
+
+#[derive(RustcDecodable, Show)]
 enum Operation {
     Init,
     Backup,
@@ -42,7 +54,9 @@ enum Operation {
 }
 
 fn main() {
-    let args: Args = Args::docopt().decode().unwrap_or_else(|e| e.exit());
+    let args: Args = Docopt::new(USAGE)
+                            .and_then(|d| d.decode())
+                            .unwrap_or_else(|e| e.exit());
     let source_path = Path::new(args.flag_source);
     let backup_path = Path::new(args.flag_destination);
     let database_path = source_path.join(DATABASE_FILENAME);

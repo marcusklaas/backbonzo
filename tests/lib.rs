@@ -1,3 +1,5 @@
+#![allow(unstable)]
+
 extern crate backbonzo;
 extern crate time;
 

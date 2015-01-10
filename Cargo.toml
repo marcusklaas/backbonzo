@@ -9,7 +9,6 @@ name = "backbonzo"
 
 [dependencies]
 docopt = "*"
-docopt_macros = "*"
 time = "*"
 glob = "*"
 rustc-serialize = "*"

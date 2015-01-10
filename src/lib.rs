@@ -4,6 +4,7 @@ extern crate "rustc-serialize" as rustc_serialize;
 extern crate time;
 extern crate bzip2;
 extern crate glob;
+extern crate "crypto" as rust_crypto;
 
 use std::io::{IoError, IoResult, TempDir, BufReader};
 use std::io::fs::{unlink, copy, File, mkdir_recursive};
@@ -14,10 +15,10 @@ use std::cmp::Ordering;
 
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
+use rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use export::FileInstruction;
 use database::{Database, SqliteError};
-use crypto::SymmetricCipherError;
 
 mod database;
 mod crypto;

@@ -1,19 +1,16 @@
-extern crate "crypto" as rust_crypto;
-
-use self::rust_crypto::aes::{cbc_decryptor, cbc_encryptor, KeySize};
-use self::rust_crypto::digest::Digest;
-use self::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer, BufferResult};
-use self::rust_crypto::blockmodes::PkcsPadding;
-use self::rust_crypto::sha2::Sha256;
-use self::rust_crypto::scrypt::{scrypt_simple, scrypt_check, ScryptParams};
-use self::rust_crypto::pbkdf2::pbkdf2;
-use self::rust_crypto::hmac::Hmac;
+use super::rust_crypto::aes::{cbc_decryptor, cbc_encryptor, KeySize};
+use super::rust_crypto::digest::Digest;
+use super::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer, BufferResult};
+use super::rust_crypto::blockmodes::PkcsPadding;
+use super::rust_crypto::sha2::Sha256;
+use super::rust_crypto::scrypt::{scrypt_simple, scrypt_check, ScryptParams};
+use super::rust_crypto::pbkdf2::pbkdf2;
+use super::rust_crypto::hmac::Hmac;
+use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use super::export::Blocks;
 use std::io::IoResult;
 use std::iter::repeat;
-
-pub use self::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
