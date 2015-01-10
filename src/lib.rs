@@ -1,4 +1,4 @@
-extern crate serialize;
+extern crate "rustc-serialize" as rustc_serialize;
 extern crate time;
 extern crate bzip2;
 extern crate glob;

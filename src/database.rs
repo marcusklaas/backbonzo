@@ -7,7 +7,7 @@ use super::{BonzoResult, BonzoError};
 use std::io::TempDir;
 use std::io::fs::{File, PathExtensions};
 use std::collections::HashSet;
-use serialize::hex::{ToHex, FromHex};
+use rustc_serialize::hex::{ToHex, FromHex};
 
 pub use self::rusqlite::SqliteError;
 

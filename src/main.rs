@@ -3,10 +3,8 @@
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate backbonzo;
-extern crate serialize;
 extern crate docopt;
 extern crate time;
-extern crate regex;
 #[plugin] extern crate docopt_macros;
 
 use docopt::Docopt;
