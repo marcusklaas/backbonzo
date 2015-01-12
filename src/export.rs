@@ -75,10 +75,9 @@ impl<'a> Blocks<'a> {
     }
     
     pub fn next(&'a mut self) -> Option<&'a [u8]> {
-        match self.file.read(self.buffer.as_mut_slice()) {
-            Err(..)   => None,
-            Ok(bytes) => Some(self.buffer.slice(0, bytes))
-        }
+        self.file.read(self.buffer.as_mut_slice()).ok().map(move |bytes| {
+            self.buffer.slice(0, bytes)
+        })
     }
 }
 
@@ -112,10 +111,9 @@ impl<'sender> ExportBlockSender<'sender> {
     pub fn export_directory(&mut self, path: &Path, directory_id: u32) -> BonzoResult<()> {
         let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
             .and_then(|list| list.into_iter()
-                .map(|path| match path.stat() {
-                    Ok(stats) => Ok((stats.modified, path)),
-                    Err(e)    => Err(e)
-                })
+                .map(|path| path.stat().map(move |stats| {
+                    (stats.modified, path)
+                }))
                 .collect()
             ));
 

@@ -1,5 +1,5 @@
-#![allow(unstable)]
 #![cfg(not(test))]
+#![allow(unstable)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate backbonzo;
