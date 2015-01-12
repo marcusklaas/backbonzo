@@ -141,3 +141,5 @@ fn backup_and_restore() {
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
     assert!(restore_path.join("test/welcome.txt").exists());
 }
+
+// TODO: add test playing with timestamps, and one toying with removals/ renames

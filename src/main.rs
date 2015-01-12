@@ -1,4 +1,3 @@
-#![feature(plugin)]
 #![allow(unstable)]
 #![cfg(not(test))]
 

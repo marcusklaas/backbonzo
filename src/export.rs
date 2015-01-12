@@ -13,7 +13,12 @@ use super::database::Database;
 use super::crypto;
 use super::{BonzoResult, BonzoError};
 
-static CHANNEL_BUFFER_SIZE: usize = 5;
+// The number of messages that should be buffered for the export thread. A large 
+// buffer will take up lots of memory and make will make the exporter do more
+// unnecessary work when the receiver quits due to a time out. A small buffer
+// increases the likelihood of buffer underruns, especially when a sequence of
+// small files is being processed.
+static CHANNEL_BUFFER_SIZE: usize = 10;
 
 // Specification of messsages sent over the channel
 pub enum FileInstruction {
@@ -46,7 +51,8 @@ struct FileComplete {
 }
 
 /* FIXME: move me somewhere else -- probably lib.rs */
-
+// Semi-iterator which reads a file one block at a time. Is not a proper
+// Iterator because we only keep one block in memory at a time.
 pub struct Blocks<'a> {
     file: File,
     buffer: Vec<u8>
@@ -76,8 +82,11 @@ impl<'a> Blocks<'a> {
     }
 }
 
-// Manager which walks the file system and splits the found files into blocks
-// -- TBC
+// Manager which walks the file system and prepares files for backup. This
+// entails splitting them into blocks and subsequently compressing and
+// encrypting these blocks. Blocks which have not previously been encountered
+// are transferred over a channel for the receiver to write to disk. This way,
+// the processing and writing of blocks can be done in parallel.
 pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Vec<u8>,
@@ -97,6 +106,9 @@ impl<'sender> ExportBlockSender<'sender> {
         })
     }
 
+    // Recursively walks the given directory, processing all files within.
+    // Deletes references to deleted files which were previously found from the
+    // database. Processes files in descending order of last mutation.
     pub fn export_directory(&mut self, path: &Path, directory_id: u32) -> BonzoResult<()> {
         let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
             .and_then(|list| list.into_iter()
@@ -131,20 +143,26 @@ impl<'sender> ExportBlockSender<'sender> {
             }
         }
 
-        // FIXME: this traverses the whole list, even if we find a None early on
+        // this traverses the whole list, even if we find a None early on
         deleted_filenames.iter().map(|filename|
             self.database.persist_null_alias(directory_id, filename.as_slice())
         ).fold(Ok(()), |a, b| a.and(b))
     }
 
+    // Tries to backup file. When the file was already in the database, it does
+    // nothing. If the file contents were previously backed up, a new reference
+    // is created. For unknown files, its (compressed and encrypted) blocks are
+    // sent over the channel. When all blocks are transmitted, a FileComplete
+    // message is sent, so the receiver can persist the file to the
+    // database. 
     fn export_file(&mut self, directory_id: u32, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
-        if self.database.alias_known(directory_id, filename.as_slice(), last_modified) {           
+        if try!(self.database.alias_known(directory_id, filename.as_slice(), last_modified)) {           
             return Ok(());
         }
         
         let hash = try!(crypto::hash_file(path));
 
-        if let Some(file_id) = self.database.file_from_hash(hash.as_slice()) {
+        if let Some(file_id) = try!(self.database.file_from_hash(hash.as_slice())) {
             return Ok(try!(self.database.persist_alias(directory_id, Some(file_id), filename.as_slice(), last_modified)));
         }
         
@@ -166,10 +184,13 @@ impl<'sender> ExportBlockSender<'sender> {
         Ok(())
     }
 
+    // Returns the id of the block when its hash is already in the database.
+    // Otherwise, it compresses and encrypts a block and sends the result on
+    // the channel to be processed.
     pub fn export_block(&mut self, block: &[u8]) -> BonzoResult<Option<u32>> {
         let hash = crypto::hash_block(block);
 
-        if let Some(id) = self.database.block_id_from_hash(hash.as_slice()) {
+        if let Some(id) = try!(self.database.block_id_from_hash(hash.as_slice())) {
             return Ok(Some(id))
         }
 
@@ -178,9 +199,10 @@ impl<'sender> ExportBlockSender<'sender> {
 
         let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
         let compressed_bytes = try!(compressor.read_to_end());
+        let encrypted_bytes = try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice()));
 
         let _ = self.sender.send(FileInstruction::NewBlock(FileBlock {
-            bytes: try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice())),
+            bytes: encrypted_bytes,
             iv: iv,
             hash: hash
         }));
@@ -189,9 +211,12 @@ impl<'sender> ExportBlockSender<'sender> {
     }
 }
 
+// Starts a new thread in which the given source path is recursively walked
+// and backed up. Returns a receiver to which new processed blocks and files
+// will be sent.
 pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> (Receiver<FileInstruction>, Sender<()>) {
     let (transmitter, receiver) = sync_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
-    let (rendezvous_tx, rendezvous_rx) = channel::<()>(); // TODO: use sync channel?
+    let (rendezvous_tx, rendezvous_rx) = channel::<()>(); // TODO: use own buffered channel!
     let path = database_path.clone();
 
     Thread::spawn(move|| {

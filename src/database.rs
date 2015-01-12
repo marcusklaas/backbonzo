@@ -2,7 +2,7 @@ extern crate rusqlite;
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 
-use super::{BonzoResult, BonzoError};
+use {BonzoResult, BonzoError};
 
 use std::io::TempDir;
 use std::io::fs::{File, PathExtensions};
@@ -12,8 +12,6 @@ use super::rustc_serialize::hex::{ToHex, FromHex};
 pub use self::rusqlite::SqliteError;
 
 // TODO: abstractify database error
-
-// TODO: don't use sqlite query_row; it can panic
 
 // An iterator over files in a state determined by the given timestamp. A file
 // is represented by its path and a list of block id's. 
@@ -53,13 +51,15 @@ impl<'a> Iterator for Aliases<'a> {
 
             match self.directory_id_list.pop() {
                 None     => break,
-                Some(id) =>
-                    self.subdirectory = Aliases::new(
-                        self.database,
-                        self.path.join(self.database.get_directory_name(id)),
-                        id,
-                        self.timestamp
-                    ).ok().map(|alias| Box::new(alias))
+                Some(id) => self.subdirectory =
+                    self.database.get_directory_name(id).and_then(|directory_name| {
+                        Aliases::new(
+                            self.database,
+                            self.path.join(directory_name),
+                            id,
+                            self.timestamp
+                        )
+                    }).ok().map(|alias| Box::new(alias))
             }
         }
 
@@ -155,8 +155,8 @@ impl Database {
             })
     }
 
-    fn get_directory_name(&self, directory_id: u32) -> String {
-        self.connection.query_row(
+    fn get_directory_name(&self, directory_id: u32) -> SqliteResult<String> {
+        self.connection.query_row_safe(
             "SELECT name FROM directory WHERE id = $1;",
             &[&(directory_id as i64)],
             |row| row.get::<String>(0)
@@ -214,17 +214,16 @@ impl Database {
         Ok(self.connection.last_insert_rowid() as u32)
     }
 
-    pub fn file_from_hash(&self, hash: &str) -> Option<u32> {
-        self.connection.query_row(
+    pub fn file_from_hash(&self, hash: &str) -> SqliteResult<Option<u32>> {
+        self.connection.query_row_safe(
             "SELECT SUM(id) FROM file WHERE hash = $1;",
             &[&hash],
             |row| row.get::<Option<i64>>(0).map(|signed| signed as u32)
         )
     }
 
-    /* TODO: we may want to further normalize database. otherwise, put some indices on these tables */
-    pub fn alias_known(&self, directory_id: u32, filename: &str, timestamp: u64) -> bool {
-        self.connection.query_row(
+    pub fn alias_known(&self, directory_id: u32, filename: &str, timestamp: u64) -> SqliteResult<bool> {
+        self.connection.query_row_safe(
             "SELECT COUNT(alias.id) FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND name = $2) a ON alias.id = a.max_id
             WHERE timestamp >= $3 AND file_id IS NOT NULL;",
@@ -234,29 +233,35 @@ impl Database {
     }
 
     pub fn block_from_id(&self, id: u32) -> BonzoResult<(String, Vec<u8>)> {
-        self.connection.query_row(
+        let (hash, iv_hex) = try!(self.connection.query_row_safe(
             "SELECT hash, iv_hex FROM block WHERE id = $1;",
             &[&(id as i64)],
-            |row| match row.get::<String>(1).as_slice().from_hex() {
-                Ok(vec) => Ok((row.get(0), vec)),
-                Err(..) => Err(BonzoError::Other(format!("Couldn't parse hex")))
+            |row| (row.get::<String>(0), row.get::<String>(1))
+        ));
+
+        match iv_hex.as_slice().from_hex() {
+            Ok(iv)  => Ok((hash, iv)),
+            Err(..) => Err(BonzoError::Other(format!("Couldn't parse hex")))
+        }
+    }
+
+    pub fn block_id_from_hash(&self, hash: &str) -> SqliteResult<Option<u32>> {
+        self.connection.query_row_safe(
+            "SELECT SUM(id) FROM block WHERE hash = $1;",
+            &[&hash],
+            |&: row: SqliteRow| {
+                row.get::<Option<i64>>(0).map(|&: signed: i64| {
+                    signed as u32
+                })
             }
         )
     }
 
-    pub fn block_id_from_hash(&self, hash: &str) -> Option<u32> {
-        self.connection.query_row(
-            "SELECT SUM(id) FROM block WHERE hash = $1;",
-            &[&hash],
-            |&: row: SqliteRow| row.get::<Option<i64>>(0)
-        ).map(|&: signed: i64| signed as u32)
-    }
-
     pub fn get_directory(&self, parent: u32, name: &str) -> SqliteResult<u32> {
-        let directory_id: Option<i64> = {
+        let directory_id: Option<i64> = try!({
             let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
-            self.connection.query_row(select_query, &[&name, &(parent as i64)], |row| row.get(0))
-        };
+            self.connection.query_row_safe(select_query, &[&name, &(parent as i64)], |row| row.get(0))
+        });
         
         if let Some(id) = directory_id {
             return Ok(id as u32);
@@ -268,12 +273,12 @@ impl Database {
             .and(Ok(self.connection.last_insert_rowid() as u32))
     }
 
-    pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<usize> {
+    pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<i32> {
         self.connection.execute("INSERT INTO setting (key, value) VALUES ($1, $2);", &[&key, &value])
     }
 
-    pub fn get_key(&self, key: &str) -> Option<String> {
-        self.connection.query_row(
+    pub fn get_key(&self, key: &str) -> SqliteResult<Option<String>> {
+        self.connection.query_row_safe(
             "SELECT value FROM setting WHERE key = $1;",
             &[&key],
             |row| row.get(0)
@@ -304,6 +309,7 @@ impl Database {
                 FOREIGN KEY(directory_id) REFERENCES directory(id),
                 FOREIGN KEY(file_id) REFERENCES file(id)
             );",
+            "CREATE INDEX alias_directory_index ON alias (directory_id)",
             "CREATE TABLE block (
                 id           INTEGER PRIMARY KEY,
                 hash         TEXT NOT NULL,
@@ -322,7 +328,11 @@ impl Database {
                 key          TEXT PRIMARY KEY,
                 value        TEXT
             );"
-        ].iter().map(|query| self.connection.execute(*query, &[])).fold(Ok((0)), |a, b| a.and(b)).map(|_|())
+        ]
+            .iter()
+            .map(|query| self.connection.execute(*query, &[]))
+            .fold(Ok((0)), |a, b| a.and(b))
+            .map(|_|())
     }
 }
 

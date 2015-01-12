@@ -161,7 +161,7 @@ impl BackupManager {
     // Returns an error when the given password does not match the one saved
     // in the index
     fn check_password(&self, password: &str) -> BonzoResult<()> {
-        let hash = self.database.get_key("password");
+        let hash = try!(self.database.get_key("password"));
         let real_hash = try!(hash.ok_or(BonzoError::Other(format!("Saved hash is NULL"))));
 
         match crypto::check_password(password, real_hash.as_slice()) {
@@ -226,7 +226,7 @@ fn block_output_path(base_path: &Path, hash: &str) -> Path {
     base_path.join_many(&[hash.slice(0, 2), hash])
 }
 
-// FIXME: this will call fsync even when write fails
+// FIXME: this will call fsync even when write fails?
 fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
     File::create(path).and_then(|mut file| {
         file.write(bytes).and(file.fsync())

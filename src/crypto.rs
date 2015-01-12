@@ -167,11 +167,11 @@ mod test {
     fn key_derivation() {
         let key: Vec<u8> = super::derive_key("test");
 
-        assert_eq!(32u, key.len());
+        assert_eq!(32us, key.len());
 
         let key_two = super::derive_key("testk");
 
-        assert_eq!(32u, key.len());
+        assert_eq!(32us, key.len());
 
         assert!(key.as_slice() != key_two.as_slice());
     }
