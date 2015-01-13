@@ -1,8 +1,12 @@
 extern crate rusqlite;
+extern crate libc;
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
+use self::rusqlite::types::{FromSql, ToSql};
+use self::rusqlite::ffi::sqlite3_stmt;
+use self::libc::c_int;
 
-use {BonzoResult, BonzoError};
+use {BonzoResult, BonzoError, Directory};
 
 use std::io::TempDir;
 use std::io::fs::{File, PathExtensions};
@@ -10,6 +14,28 @@ use std::collections::HashSet;
 use super::rustc_serialize::hex::{ToHex, FromHex};
 
 pub use self::rusqlite::SqliteError;
+
+impl ToSql for Directory {
+    unsafe fn bind_parameter(&self, stmt: *mut sqlite3_stmt, col: c_int) -> c_int {
+        let i = match *self {
+            Directory::Root     => 0,
+            Directory::Child(i) => i
+        };
+
+        i.bind_parameter(stmt, col)
+    }
+}
+
+impl FromSql for Directory {
+    unsafe fn column_result(stmt: *mut sqlite3_stmt, col: c_int) -> SqliteResult<Directory> {
+        FromSql::column_result(stmt, col).map(|i| {
+            match i {
+                0 => Directory::Root,
+                v => Directory::Child(v)
+            }
+        })
+    }
+}
 
 // TODO: abstractify database error
 
@@ -20,18 +46,18 @@ pub struct Aliases<'a> {
     path: Path,
     timestamp: u64,
     file_list: Vec<(u32, String)>,
-    directory_id_list: Vec<u32>,
+    directory_list: Vec<Directory>,
     subdirectory: Option<Box<Aliases<'a>>>
 }
 
 impl<'a> Aliases<'a> {
-    pub fn new(database: &'a Database, path: Path, directory_id: u32, timestamp: u64) -> SqliteResult<Aliases<'a>> {
+    pub fn new(database: &'a Database, path: Path, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
         Ok(Aliases {
             database: database,
             path: path,
             timestamp: timestamp,
-            file_list: try!(database.get_directory_content_at(directory_id, timestamp)),
-            directory_id_list: try!(database.get_subdirectories(directory_id)),
+            file_list: try!(database.get_directory_content_at(directory, timestamp)),
+            directory_list: try!(database.get_subdirectories(directory)),
             subdirectory: None
         })
     }
@@ -49,7 +75,7 @@ impl<'a> Iterator for Aliases<'a> {
                 }
             }
 
-            match self.directory_id_list.pop() {
+            match self.directory_list.pop() {
                 None     => break,
                 Some(id) => self.subdirectory =
                     self.database.get_directory_name(id).and_then(|directory_name| {
@@ -113,17 +139,19 @@ impl Database {
         Ok(try!(File::open(&self.path).and_then(|mut file| file.read_to_end())))
     }
 
-    pub fn get_subdirectories(&self, directory_id: u32) -> SqliteResult<Vec<u32>> {
+    pub fn get_subdirectories(&self, directory: Directory) -> SqliteResult<Vec<Directory>> {
         let mut statement = try!(self.connection.prepare("SELECT id FROM directory WHERE parent_id = $1;"));
         
         statement
-            .query(&[&(directory_id as i64)])
+            .query(&[&directory])
             .and_then(|directories| {
-                directories.map(extract_u32).collect()
+                directories.map(|row| {
+                    row.map(|result| result.get::<Directory>(0))
+                }).collect()
             })
     }
 
-    pub fn get_directory_content_at(&self, directory_id: u32, timestamp: u64) -> SqliteResult<Vec<(u32, String)>> {
+    pub fn get_directory_content_at(&self, directory: Directory, timestamp: u64) -> SqliteResult<Vec<(u32, String)>> {
         let mut statement = try!(self.connection.prepare(
             "SELECT alias.file_id, alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name) a ON alias.id = a.max_id
@@ -131,7 +159,7 @@ impl Database {
         ));
         
         statement
-            .query(&[&(directory_id as i64), &(timestamp as i64)])
+            .query(&[&directory, &(timestamp as i64)])
             .and_then(|result| {
                 result.map(|row_result| {
                     row_result.map(|row| (row.get::<i64>(0) as u32, row.get(1)))
@@ -139,7 +167,7 @@ impl Database {
             })
     }
 
-    pub fn get_directory_filenames(&self, directory_id: u32) -> SqliteResult<HashSet<String>> {
+    pub fn get_directory_filenames(&self, directory: Directory) -> SqliteResult<HashSet<String>> {
         let mut statement = try!(self.connection.prepare(
             "SELECT alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 GROUP BY name) a ON alias.id = a.max_id
@@ -147,7 +175,7 @@ impl Database {
         ));
         
         statement
-            .query(&[&(directory_id as i64)])
+            .query(&[&directory])
             .and_then(|filenames| {
                 filenames.map(|row_result| {
                     row_result.map(|row| row.get::<String>(0))
@@ -155,10 +183,10 @@ impl Database {
             })
     }
 
-    fn get_directory_name(&self, directory_id: u32) -> SqliteResult<String> {
+    fn get_directory_name(&self, directory: Directory) -> SqliteResult<String> {
         self.connection.query_row_safe(
             "SELECT name FROM directory WHERE id = $1;",
-            &[&(directory_id as i64)],
+            &[&directory],
             |row| row.get::<String>(0)
         )
     }
@@ -173,7 +201,7 @@ impl Database {
             })
     }
 
-    pub fn persist_file(&self, directory_id: u32, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
+    pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
         let transaction = try!(self.connection.transaction());
 
         try!(self.connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
@@ -187,22 +215,22 @@ impl Database {
             ));
         }
         
-        try!(self.persist_alias(directory_id, Some(file_id as u32), filename, last_modified));
+        try!(self.persist_alias(directory, Some(file_id as u32), filename, last_modified));
 
         transaction.commit()
     }
 
-    pub fn persist_alias(&self, directory_id: u32, file_id: Option<u32>, filename: &str, last_modified: u64) -> SqliteResult<()> {
+    pub fn persist_alias(&self, directory: Directory, file_id: Option<u32>, filename: &str, last_modified: u64) -> SqliteResult<()> {
         let signed_file_id = file_id.map(|unsigned| unsigned as i64);
         
         self.connection.execute(
             "INSERT INTO alias (directory_id, file_id, name, timestamp) VALUES ($1, $2, $3, $4);",
-            &[&(directory_id as i64), &signed_file_id, &filename, &(last_modified as i64)]
+            &[&directory, &signed_file_id, &filename, &(last_modified as i64)]
         ).map(|_|())
     }
 
-    pub fn persist_null_alias(&self, directory_id: u32, filename: &str) -> BonzoResult<()> {    
-        Ok(try!(self.persist_alias(directory_id, None, filename, try!(get_filesystem_time()))))
+    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> BonzoResult<()> {    
+        Ok(try!(self.persist_alias(directory, None, filename, try!(get_filesystem_time()))))
     }
 
     pub fn persist_block(&self, hash: &str, iv: &[u8]) -> SqliteResult<u32> {
@@ -222,12 +250,12 @@ impl Database {
         )
     }
 
-    pub fn alias_known(&self, directory_id: u32, filename: &str, timestamp: u64) -> SqliteResult<bool> {
+    pub fn alias_known(&self, directory: Directory, filename: &str, timestamp: u64) -> SqliteResult<bool> {
         self.connection.query_row_safe(
             "SELECT COUNT(alias.id) FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND name = $2) a ON alias.id = a.max_id
             WHERE timestamp >= $3 AND file_id IS NOT NULL;",
-            &[&(directory_id as i64), &filename, &(timestamp as i64)],
+            &[&directory, &filename, &(timestamp as i64)],
             |row| row.get::<i64>(0) > 0
         )
     }
@@ -257,20 +285,20 @@ impl Database {
         )
     }
 
-    pub fn get_directory(&self, parent: u32, name: &str) -> SqliteResult<u32> {
-        let directory_id: Option<i64> = try!({
+    pub fn get_directory(&self, parent: Directory, name: &str) -> SqliteResult<Directory> {
+        let possible_directory: Option<Directory> = try!({
             let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
-            self.connection.query_row_safe(select_query, &[&name, &(parent as i64)], |row| row.get(0))
+            self.connection.query_row_safe(select_query, &[&name, &parent], |row| row.get(0))
         });
         
-        if let Some(id) = directory_id {
-            return Ok(id as u32);
+        if let Some(directory) = possible_directory {
+            return Ok(directory);
         }
         
         let insert_query = "INSERT INTO directory (parent_id, name) VALUES ($1, $2);";
         
-        self.connection.execute(insert_query, &[&(parent as i64), &name])
-            .and(Ok(self.connection.last_insert_rowid() as u32))
+        self.connection.execute(insert_query, &[&parent, &name])
+            .and(Ok(Directory::Child(self.connection.last_insert_rowid())))
     }
 
     pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<i32> {

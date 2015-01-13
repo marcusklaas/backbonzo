@@ -10,7 +10,7 @@ use bzip2::reader::BzCompressor;
 
 use super::database::Database;
 use super::crypto;
-use super::{BonzoResult, BonzoError};
+use {Directory, BonzoResult, BonzoError};
 use super::spsc::{SingleReceiver, SingleSender, single_channel};
 
 // The number of messages that should be buffered for the export thread. A large 
@@ -46,7 +46,7 @@ struct FileComplete {
     pub filename: String,
     pub hash: String,
     pub last_modified: u64,
-    pub directory_id: u32,
+    pub directory: Directory,
     pub block_id_list: Vec<Option<u32>>
 }
 
@@ -108,7 +108,7 @@ impl<'sender> ExportBlockSender<'sender> {
     // Recursively walks the given directory, processing all files within.
     // Deletes references to deleted files which were previously found from the
     // database. Processes files in descending order of last mutation.
-    pub fn export_directory(&mut self, path: &Path, directory_id: u32) -> BonzoResult<()> {
+    pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
         let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
             .and_then(|list| list.into_iter()
                 .map(|path| path.stat().map(move |stats| {
@@ -119,15 +119,15 @@ impl<'sender> ExportBlockSender<'sender> {
 
         content_list.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
 
-        let mut deleted_filenames = try!(self.database.get_directory_filenames(directory_id));
+        let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
         
         for &(last_modified, ref content_path) in content_list.iter() {
             if content_path.is_dir() {
                 let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
                 let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
-                let child_directory_id = try!(self.database.get_directory(directory_id, name));
+                let child_directory = try!(self.database.get_directory(directory, name));
             
-                try!(self.export_directory(content_path, child_directory_id));
+                try!(self.export_directory(content_path, child_directory));
             }
             else {
                 try!(content_path
@@ -136,14 +136,14 @@ impl<'sender> ExportBlockSender<'sender> {
                     .map(String::from_str)
                     .and_then(|filename| {
                         deleted_filenames.remove(&filename);
-                        self.export_file(directory_id, content_path, filename, last_modified)
+                        self.export_file(directory, content_path, filename, last_modified)
                     }));
             }
         }
 
         // this traverses the whole list, even if we find a None early on
         deleted_filenames.iter().map(|filename|
-            self.database.persist_null_alias(directory_id, filename.as_slice())
+            self.database.persist_null_alias(directory, filename.as_slice())
         ).fold(Ok(()), |a, b| a.and(b))
     }
 
@@ -153,15 +153,15 @@ impl<'sender> ExportBlockSender<'sender> {
     // sent over the channel. When all blocks are transmitted, a FileComplete
     // message is sent, so the receiver can persist the file to the
     // database. 
-    fn export_file(&mut self, directory_id: u32, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
-        if try!(self.database.alias_known(directory_id, filename.as_slice(), last_modified)) {           
+    fn export_file(&mut self, directory: Directory, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
+        if try!(self.database.alias_known(directory, filename.as_slice(), last_modified)) {           
             return Ok(());
         }
         
         let hash = try!(crypto::hash_file(path));
 
         if let Some(file_id) = try!(self.database.file_from_hash(hash.as_slice())) {
-            return Ok(try!(self.database.persist_alias(directory_id, Some(file_id), filename.as_slice(), last_modified)));
+            return Ok(try!(self.database.persist_alias(directory, Some(file_id), filename.as_slice(), last_modified)));
         }
         
         let mut blocks = try!(Blocks::from_path(path, self.block_size));
@@ -175,7 +175,7 @@ impl<'sender> ExportBlockSender<'sender> {
             filename: filename,
             hash: hash,
             last_modified: last_modified,
-            directory_id: directory_id,
+            directory: directory,
             block_id_list: block_id_list
         }));
 
@@ -222,7 +222,7 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_
             Ok(database) => {
                 ExportBlockSender::new(database, encryption_key, block_size, &mut transmitter)
                     .and_then(|mut exporter| exporter
-                    .export_directory(&source_path, 0))
+                    .export_directory(&source_path, Directory::Root))
             }
         };
     

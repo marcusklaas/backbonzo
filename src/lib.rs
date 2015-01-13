@@ -33,8 +33,6 @@ pub enum BonzoError {
     Other(String)
 }
 
-// TODO: once again put directory id in enum
-
 impl FromError<IoError> for BonzoError {
     fn from_error(error: IoError) -> BonzoError {
         BonzoError::Io(error)
@@ -65,6 +63,12 @@ impl fmt::Show for BonzoError {
 }
 
 pub type BonzoResult<T> = Result<T, BonzoError>;
+
+#[derive(Copy)]
+enum Directory {
+    Root,
+    Child(i64)
+}
 
 pub struct BackupManager {
     database: Database,
@@ -120,7 +124,7 @@ impl BackupManager {
                         .ok_or(BonzoError::Other(format!("Block buffer is empty"))));
 
                     try!(self.database.persist_file(
-                        file.directory_id,
+                        file.directory,
                         file.filename.as_slice(),
                         file.hash.as_slice(),
                         file.last_modified,
@@ -140,7 +144,7 @@ impl BackupManager {
     pub fn restore(&self, timestamp: u64, filter: String) -> BonzoResult<()> {
         let pattern = Pattern::new(filter.as_slice());
         
-        try!(database::Aliases::new(&self.database, self.source_path.clone(), 0, timestamp))
+        try!(database::Aliases::new(&self.database, self.source_path.clone(), Directory::Root, timestamp))
             .filter(|&(ref path, _)| pattern.matches_path(path))
             .map(|(path, block_list)| self.restore_file(&path, block_list.as_slice()))
             .fold(Ok(()), |a, b| a.and(b))
