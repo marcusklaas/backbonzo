@@ -257,11 +257,11 @@ mod test {
             super::super::write_to_disk(&file_path, content.as_bytes());
         }
 
-        let password = format!("password123");
+        let password = "password123";
         let database_path = temp_dir.path().join("index.db3");
-        let key = super::super::crypto::derive_key(password.as_slice());
+        let key = super::super::crypto::derive_key(password);
 
-        super::super::init(database_path.clone(), password);
+        super::super::init(temp_dir.path().clone(), password);
 
         let receiver = super::start_export_thread(&database_path, key, 10000000, temp_dir.path().clone());
 
@@ -281,7 +281,7 @@ mod test {
             
             match msg {
                 super::FileInstruction::Done => break,
-                super::FileInstruction::Error(..) => panic!(),
+                super::FileInstruction::Error(e) => panic!("{:?}", e),
                 _ => {}
             }
         }

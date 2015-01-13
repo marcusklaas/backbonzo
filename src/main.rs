@@ -30,8 +30,6 @@ Options:
   -f --filter=<exp>          Regular expression for paths [default: **].
 ";
 
-static DATABASE_FILENAME: &'static str = "index.db3";
-
 #[derive(RustcDecodable, Show)]
 #[allow(non_snake_case)]
 struct Args {
@@ -58,7 +56,6 @@ fn main() {
                             .unwrap_or_else(|e| e.exit());
     let source_path = Path::new(args.flag_source);
     let backup_path = Path::new(args.flag_destination);
-    let database_path = source_path.join(DATABASE_FILENAME);
     let block_bytes = 1000 * 1000 * args.flag_blocksize;
     let deadline = time::now() + match args.flag_timeout {
         0    => Duration::weeks(52),
@@ -68,11 +65,12 @@ fn main() {
         0 => 1000 * time::get_time().sec as u64,
         v => v
     };
+    let password = args.flag_key.as_slice();
 
     let result = match args.arg_OPERATION {
-        Operation::Init    => init(database_path, args.flag_key),
-        Operation::Restore => restore(source_path, backup_path, args.flag_key, timestamp, args.flag_filter),
-        Operation::Backup  => backup(database_path, source_path, backup_path, block_bytes, args.flag_key, deadline)
+        Operation::Init    => init(source_path, password),
+        Operation::Restore => restore(source_path, backup_path, password, timestamp, args.flag_filter),
+        Operation::Backup  => backup(source_path, backup_path, block_bytes, password, deadline)
     };
     
     handle_result(result);

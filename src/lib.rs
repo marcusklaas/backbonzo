@@ -26,6 +26,8 @@ mod database;
 mod crypto;
 mod export;
 
+static DATABASE_FILENAME: &'static str = "index.db3";
+
 pub enum BonzoError {
     Database(SqliteError),
     Io(IoError),
@@ -78,17 +80,27 @@ pub struct BackupManager {
 }
 
 impl BackupManager {
-    pub fn new(database_path: Path, source_path: Path, backup_path: Path, password: String) -> BonzoResult<BackupManager> {
+    pub fn create(database_path: Path, source_path: Path, backup_path: Path, password: &str, key: Vec<u8>) -> BonzoResult<BackupManager> {
         let manager = BackupManager {
             database: try!(Database::from_file(database_path)),
             source_path: source_path,
             backup_path: backup_path,
-            encryption_key: crypto::derive_key(password.as_slice())
+            encryption_key: key
         };
 
-        try!(manager.check_password(password.as_slice()));
+        try!(manager.check_password(password));
 
         Ok(manager)
+    }
+    
+    pub fn new(database_path: Path, source_path: Path, backup_path: Path, password: &str) -> BonzoResult<BackupManager> {
+        BackupManager::create(
+            database_path,
+            source_path,
+            backup_path,
+            password,
+            crypto::derive_key(password)
+        )
     }
 
     // Update the state of the backup. Starts a walker thread and listens
@@ -201,36 +213,39 @@ impl BackupManager {
     }
 }
 
-pub fn init(database_path: Path, password: String) -> BonzoResult<()> {
+pub fn init(source_path: Path, password: &str) -> BonzoResult<()> {
+    let database_path = source_path.join(DATABASE_FILENAME);
     let database = try!(Database::create(database_path));
-    let hash = try!(crypto::hash_password(password.as_slice()));
+    let hash = try!(crypto::hash_password(password));
 
     Ok(try!(database.setup().and(database.set_key("password", hash.as_slice()).map(|_|()))))
 }
 
-pub fn backup(database_path: Path, source_path: Path, backup_path: Path, block_bytes: u32, password: String, deadline: time::Tm) -> BonzoResult<()> {
+pub fn backup(source_path: Path, backup_path: Path, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<()> {
+    let database_path = source_path.join(DATABASE_FILENAME);
     let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, password));
             
     manager.update(block_bytes, deadline).and(manager.export_index())
 }
 
-pub fn restore(source_path: Path, backup_path: Path, password: String, timestamp: u64, filter: String) -> BonzoResult<()> {
+pub fn restore(source_path: Path, backup_path: Path, password: &str, timestamp: u64, filter: String) -> BonzoResult<()> {
     let temp_directory = try!(TempDir::new("bonzo"));
-    let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), password.as_slice()));
-    let manager = try!(BackupManager::new(decrypted_index_path, source_path, backup_path, password));
+    let key = crypto::derive_key(password);
+    let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), key.as_slice()));
+    let manager = try!(BackupManager::create(decrypted_index_path, source_path, backup_path, password, key));
     
     manager.restore(timestamp, filter)
 }
 
-// TODO: find a better solution for this
-fn decrypt_index(backup_path: &Path, temp_dir: &Path, password: &str) -> BonzoResult<Path> {
+// TODO: compressing and encrypting a block should be 1 function
+// TODO: reading, decrypting & inflating block should be 1 function
+fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8]) -> BonzoResult<Path> {
     let encrypted_index_path = backup_path.join("index");
-    let decrypted_index_path = temp_dir.join("index.db3");
+    let decrypted_index_path = temp_dir.join(DATABASE_FILENAME);
     let mut file = try!(File::open(&encrypted_index_path));
     let contents = try!(file.read_to_end());
     let iv = [0u8; 16];
-    let key = crypto::derive_key(password.as_slice());
-    let decrypted_content = try!(crypto::decrypt_block(contents.as_slice(), key.as_slice(), &iv));
+    let decrypted_content = try!(crypto::decrypt_block(contents.as_slice(), key, &iv));
 
     try!(write_to_disk(&decrypted_index_path, decrypted_content.as_slice()));
 

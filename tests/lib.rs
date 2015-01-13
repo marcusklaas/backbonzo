@@ -12,15 +12,13 @@ use std::time::duration::Duration;
 #[test]
 fn init() {
     let dir = TempDir::new("backbonzo-test").unwrap();
-    let database_path = dir.path().join("index.db3");
-    let password = String::from_str("testpassword");
+    let password = "testpassword";
 
-    let result = backbonzo::init(database_path.clone(), password.clone());
+    let result = backbonzo::init(dir.path().clone(), password.clone());
 
     assert!(result.is_ok());
-    assert!(database_path.exists());
 
-    let second_result = backbonzo::init(database_path.clone(), password.clone());
+    let second_result = backbonzo::init(dir.path().clone(), password.clone());
 
     let is_expected = match second_result {
         Err(BonzoError::Other(ref str)) => str.as_slice() == "Database file already exists",
@@ -33,19 +31,17 @@ fn init() {
 #[test]
 fn backup_wrong_password() {
     let dir = TempDir::new("wrong-password").unwrap();
-    let database_path = dir.path().join("index.db3");
     let source_path = dir.path().clone();
     let destination_path = source_path.clone();
     let deadline = time::now();
 
-    assert!(backbonzo::init(database_path.clone(), String::from_str("testpassword")).is_ok());
+    assert!(backbonzo::init(source_path.clone(), "testpassword").is_ok());
 
     let backup_result = backbonzo::backup(
-        database_path.clone(),
         source_path,
         destination_path,
         1000000,
-        String::from_str("differentpassword"),
+        "differentpassword",
         deadline);
 
     let is_expected = match backup_result {
@@ -59,17 +55,15 @@ fn backup_wrong_password() {
 #[test]
 fn backup_no_init() {
     let dir = TempDir::new("no-init").unwrap();
-    let database_path = dir.path().join("index.db3");
     let source_path = dir.path().clone();
     let destination_path = source_path.clone();
     let deadline = time::now();
 
     let backup_result = backbonzo::backup(
-        database_path.clone(),
         source_path,
         destination_path,
         1000000,
-        String::from_str("differentpassword"),
+        "differentpassword",
         deadline
     );
 
@@ -85,10 +79,9 @@ fn backup_no_init() {
 fn backup_and_restore() {
     let source_temp = TempDir::new("source").unwrap();
     let destination_temp = TempDir::new("destination").unwrap();
-    let database_path = source_temp.path().join("index.db3");
     let source_path = source_temp.path().clone();
     let destination_path = destination_temp.path().clone();
-    let password = String::from_str("testpassword");
+    let password = "testpassword";
     let deadline = time::now() + Duration::minutes(1);
 
     assert!(mkdir_recursive(&source_path.join("test"), std::io::FilePermission::all()).is_ok());
@@ -103,14 +96,13 @@ fn backup_and_restore() {
         assert!(file.fsync().is_ok());
     }
 
-    assert!(backbonzo::init(database_path.clone(), password.clone()).is_ok());
+    assert!(backbonzo::init(source_path.clone(), password.clone()).is_ok());
 
     let backup_result = backbonzo::backup(
-        database_path.clone(),
         source_path.clone(),
         destination_path.clone(),
         1000000,
-        password.clone(),
+        password,
         deadline
     );
 
@@ -123,7 +115,7 @@ fn backup_and_restore() {
     let restore_result = backbonzo::restore(
         restore_path.clone(),
         destination_path.clone(),
-        password.clone(),
+        password,
         timestamp,
         String::from_str("**/welco*")
     );
