@@ -11,6 +11,7 @@ use {BonzoResult, BonzoError, Directory};
 use std::io::TempDir;
 use std::io::fs::{File, PathExtensions};
 use std::collections::HashSet;
+use std::iter::FromIterator;
 use super::rustc_serialize::hex::{ToHex, FromHex};
 
 pub use self::rusqlite::SqliteError;
@@ -38,6 +39,7 @@ impl FromSql for Directory {
 }
 
 // TODO: abstractify database error
+// TODO: use references to Database instead of the value itself, so we may remove Copy trait?
 
 // An iterator over files in a state determined by the given timestamp. A file
 // is represented by its path and a list of block id's. 
@@ -117,6 +119,24 @@ impl Database {
         })
     }
 
+    fn query_and_collect<T, F, C>(&self, sql: &str, params: &[&ToSql], f: F) -> SqliteResult<C>
+                                  where F: Fn(SqliteRow) -> T,
+                                        C: FromIterator<T> {
+        let mut statement = try!(self.connection.prepare(sql));
+        
+        statement
+            .query(params)
+            .and_then(|rows| {
+                rows
+                    .map(|possible_row| {
+                        possible_row.map(|row| {
+                            f(row)
+                        })
+                    })
+                    .collect()
+            })
+    }
+
     pub fn get_path<'a>(&'a self) -> &'a Path {
         &self.path
     }
@@ -140,7 +160,7 @@ impl Database {
     }
 
     pub fn get_subdirectories(&self, directory: Directory) -> SqliteResult<Vec<Directory>> {
-        self.connection.query_and_collect(
+        self.query_and_collect(
             "SELECT id FROM directory WHERE parent_id = $1;",
             &[&directory],
             |result| result.get(0)
@@ -148,7 +168,7 @@ impl Database {
     }
 
     pub fn get_directory_content_at(&self, directory: Directory, timestamp: u64) -> SqliteResult<Vec<(u32, String)>> {
-        self.connection.query_and_collect(
+        self.query_and_collect(
             "SELECT alias.file_id, alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name) a ON alias.id = a.max_id
             WHERE file_id IS NOT NULL;",
@@ -158,7 +178,7 @@ impl Database {
     }
 
     pub fn get_directory_filenames(&self, directory: Directory) -> SqliteResult<HashSet<String>> {
-        self.connection.query_and_collect(
+        self.query_and_collect(
             "SELECT alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 GROUP BY name) a ON alias.id = a.max_id
             WHERE file_id IS NOT NULL;",
@@ -176,7 +196,7 @@ impl Database {
     }
 
     fn get_file_block_list(&self, file_id: u32) -> SqliteResult<Vec<u32>> {
-        self.connection.query_and_collect(
+        self.query_and_collect(
             "SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;",
             &[&(file_id as i64)],
             |row| row.get::<i64>(0) as u32
@@ -351,4 +371,40 @@ fn get_filesystem_time() -> BonzoResult<u64> {
     let temp_directory = try!(TempDir::new("bbtime"));
 
     Ok(try!(temp_directory.path().stat()).modified)
+}
+
+#[cfg(test)]
+mod test {
+    use std::io::TempDir;
+    use Directory;
+
+    #[test]
+    fn directory_queries() {
+        let temp = TempDir::new("query-collect").unwrap();
+        let path = temp.path().join("index.db3");
+        let db = super::Database::create(path).unwrap();
+        let _ = db.setup().unwrap();
+        
+        let child1 = db.get_directory(Directory::Root, "child1").unwrap();
+        let child2 = db.get_directory(Directory::Root, "child2").unwrap();
+        let grand_child = db.get_directory(child1, "grand child1").unwrap();
+
+        let child1_copy = db.get_directory(Directory::Root, "child1").unwrap();
+
+        assert_eq!(child1, child1_copy);
+
+        let children = db.get_subdirectories(Directory::Root).unwrap();
+
+        assert!(children.len() == 2);
+        assert!(children.iter().any(|x| *x == child1));
+        assert!(children.iter().any(|x| *x == child2));
+
+        let grand_children = db.get_subdirectories(child1).unwrap();
+
+        assert_eq!(grand_children[0], grand_child);
+
+        let great_grand_children = db.get_subdirectories(grand_child).unwrap();
+
+        assert_eq!(0us, great_grand_children.len());
+    }
 }

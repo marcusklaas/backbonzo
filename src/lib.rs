@@ -64,7 +64,7 @@ impl fmt::Show for BonzoError {
 
 pub type BonzoResult<T> = Result<T, BonzoError>;
 
-#[derive(Copy)]
+#[derive(Copy, Eq, PartialEq, Show)]
 enum Directory {
     Root,
     Child(i64)
