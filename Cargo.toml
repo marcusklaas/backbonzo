@@ -12,7 +12,10 @@ docopt = "*"
 time = "*"
 glob = "*"
 rustc-serialize = "*"
-rusqlite = "*"
+
+[dependencies.rusqlite]
+git = "https://github.com/marcusklaas/rusqlite"
+rev = "38e40507703270a4f2c611dd423168ac7799c17d"
 
 [dependencies.rust-crypto]
 git = "https://github.com/dagenix/rust-crypto"

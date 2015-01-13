@@ -140,47 +140,31 @@ impl Database {
     }
 
     pub fn get_subdirectories(&self, directory: Directory) -> SqliteResult<Vec<Directory>> {
-        let mut statement = try!(self.connection.prepare("SELECT id FROM directory WHERE parent_id = $1;"));
-        
-        statement
-            .query(&[&directory])
-            .and_then(|directories| {
-                directories.map(|row| {
-                    row.map(|result| result.get::<Directory>(0))
-                }).collect()
-            })
+        self.connection.query_and_collect(
+            "SELECT id FROM directory WHERE parent_id = $1;",
+            &[&directory],
+            |result| result.get(0)
+        )
     }
 
     pub fn get_directory_content_at(&self, directory: Directory, timestamp: u64) -> SqliteResult<Vec<(u32, String)>> {
-        let mut statement = try!(self.connection.prepare(
+        self.connection.query_and_collect(
             "SELECT alias.file_id, alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name) a ON alias.id = a.max_id
-            WHERE file_id IS NOT NULL;"
-        ));
-        
-        statement
-            .query(&[&directory, &(timestamp as i64)])
-            .and_then(|result| {
-                result.map(|row_result| {
-                    row_result.map(|row| (row.get::<i64>(0) as u32, row.get(1)))
-                }).collect()
-            })
+            WHERE file_id IS NOT NULL;",
+            &[&directory, &(timestamp as i64)],
+            |row| (row.get::<i64>(0) as u32, row.get(1))
+        )
     }
 
     pub fn get_directory_filenames(&self, directory: Directory) -> SqliteResult<HashSet<String>> {
-        let mut statement = try!(self.connection.prepare(
+        self.connection.query_and_collect(
             "SELECT alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 GROUP BY name) a ON alias.id = a.max_id
-            WHERE file_id IS NOT NULL;"
-        ));
-        
-        statement
-            .query(&[&directory])
-            .and_then(|filenames| {
-                filenames.map(|row_result| {
-                    row_result.map(|row| row.get::<String>(0))
-                }).collect()
-            })
+            WHERE file_id IS NOT NULL;",
+            &[&directory],
+            |row| row.get(0)
+        )
     }
 
     fn get_directory_name(&self, directory: Directory) -> SqliteResult<String> {
@@ -192,13 +176,11 @@ impl Database {
     }
 
     fn get_file_block_list(&self, file_id: u32) -> SqliteResult<Vec<u32>> {
-        let mut statement = try!(self.connection.prepare("SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;"));
-        
-        statement
-            .query(&[&(file_id as i64)])
-            .and_then(|rows| {
-                rows.map(extract_u32).collect()
-            })
+        self.connection.query_and_collect(
+            "SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;",
+            &[&(file_id as i64)],
+            |row| row.get::<i64>(0) as u32
+        )
     }
 
     pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
@@ -369,8 +351,4 @@ fn get_filesystem_time() -> BonzoResult<u64> {
     let temp_directory = try!(TempDir::new("bbtime"));
 
     Ok(try!(temp_directory.path().stat()).modified)
-}
-
-fn extract_u32(row: SqliteResult<SqliteRow>) -> SqliteResult<u32> {
-    row.map(|result| result.get::<i64>(0) as u32)
 }
