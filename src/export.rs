@@ -3,7 +3,6 @@ use std::io::fs::{readdir, File, PathExtensions};
 use std::path::Path;
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
-use std::sync::mpsc::{SyncSender, Sender, Receiver, sync_channel, channel};
 use std::mem::forget;
 
 use bzip2::CompressionLevel;
@@ -12,13 +11,14 @@ use bzip2::reader::BzCompressor;
 use super::database::Database;
 use super::crypto;
 use super::{BonzoResult, BonzoError};
+use super::spsc::{SingleReceiver, SingleSender, single_channel};
 
 // The number of messages that should be buffered for the export thread. A large 
 // buffer will take up lots of memory and make will make the exporter do more
 // unnecessary work when the receiver quits due to a time out. A small buffer
 // increases the likelihood of buffer underruns, especially when a sequence of
 // small files is being processed.
-static CHANNEL_BUFFER_SIZE: usize = 10;
+static CHANNEL_BUFFER_SIZE: u32 = 10;
 
 // Specification of messsages sent over the channel
 pub enum FileInstruction {
@@ -90,12 +90,12 @@ pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Vec<u8>,
     block_size: u32,
-    sender: &'sender SyncSender<FileInstruction>,
+    sender: &'sender mut SingleSender<FileInstruction>,
     rng: OsRng
 }
 
 impl<'sender> ExportBlockSender<'sender> {
-    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: &'sender SyncSender<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
+    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: &'sender mut SingleSender<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
         Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
@@ -212,16 +212,15 @@ impl<'sender> ExportBlockSender<'sender> {
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> (Receiver<FileInstruction>, Sender<()>) {
-    let (transmitter, receiver) = sync_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
-    let (rendezvous_tx, rendezvous_rx) = channel::<()>(); // TODO: use own buffered channel!
+pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> SingleReceiver<FileInstruction> {
+    let (mut transmitter, receiver) = single_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
     let path = database_path.clone();
 
     Thread::spawn(move|| {
         let result = match Database::from_file(path) {
             Err(e) => Err(e),
             Ok(database) => {
-                ExportBlockSender::new(database, encryption_key, block_size, &transmitter)
+                ExportBlockSender::new(database, encryption_key, block_size, &mut transmitter)
                     .and_then(|mut exporter| exporter
                     .export_directory(&source_path, 0))
             }
@@ -232,12 +231,9 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_
         } else {
             let _ = transmitter.send(FileInstruction::Done);
         }
-
-        // Keep thread alive until the channel buffer has been cleared completely
-        let _ = rendezvous_rx.recv();
     });
 
-    (receiver, rendezvous_tx)
+    receiver
 }
 
 #[cfg(test)]
@@ -267,7 +263,7 @@ mod test {
 
         super::super::init(database_path.clone(), password);
 
-        let (receiver, _) = super::start_export_thread(&database_path, key, 10000000, temp_dir.path().clone());
+        let receiver = super::start_export_thread(&database_path, key, 10000000, temp_dir.path().clone());
 
         // give the export thread plenty of time to process all files
         let mut timer = Timer::new().unwrap();

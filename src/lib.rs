@@ -5,6 +5,7 @@ extern crate time;
 extern crate bzip2;
 extern crate glob;
 extern crate "crypto" as rust_crypto;
+extern crate spsc;
 
 use std::io::{IoError, IoResult, TempDir, BufReader};
 use std::io::fs::{unlink, copy, File, mkdir_recursive};
@@ -78,7 +79,7 @@ impl BackupManager {
     // to its messages. Exits after the time has surpassed the deadline, even
     // when the update hasn't been fully completed
     pub fn update(&mut self, block_bytes: u32, deadline: time::Tm) -> BonzoResult<()> {
-        let (channel_receiver, rendezvous_sender) = export::start_export_thread(
+        let channel_receiver = export::start_export_thread(
             self.database.get_path(),
             self.encryption_key.clone(),
             block_bytes,
@@ -120,8 +121,6 @@ impl BackupManager {
                 break;
             }
         }
-
-        let _ = rendezvous_sender.send(());
 
         Ok(())
     }

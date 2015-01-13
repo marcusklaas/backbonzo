@@ -17,6 +17,9 @@ rusqlite = "*"
 [dependencies.rust-crypto]
 git = "https://github.com/dagenix/rust-crypto"
 
+[dependencies.spsc]
+git = "https://github.com/marcusklaas/rust-spsc"
+
 [dependencies.bzip2]
 git = "https://github.com/alexcrichton/bzip2-rs"
 
