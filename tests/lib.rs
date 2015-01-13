@@ -32,7 +32,7 @@ fn init() {
 
 #[test]
 fn backup_wrong_password() {
-    let dir = TempDir::new("backbonzo-test").unwrap();
+    let dir = TempDir::new("wrong-password").unwrap();
     let database_path = dir.path().join("index.db3");
     let source_path = dir.path().clone();
     let destination_path = source_path.clone();
@@ -58,7 +58,7 @@ fn backup_wrong_password() {
 
 #[test]
 fn backup_no_init() {
-    let dir = TempDir::new("backbonzo-test").unwrap();
+    let dir = TempDir::new("no-init").unwrap();
     let database_path = dir.path().join("index.db3");
     let source_path = dir.path().clone();
     let destination_path = source_path.clone();
@@ -83,8 +83,8 @@ fn backup_no_init() {
 
 #[test]
 fn backup_and_restore() {
-    let source_temp = TempDir::new("backbonzo-source").unwrap();
-    let destination_temp = TempDir::new("backbonzo-destination").unwrap();
+    let source_temp = TempDir::new("source").unwrap();
+    let destination_temp = TempDir::new("destination").unwrap();
     let database_path = source_temp.path().join("index.db3");
     let source_path = source_temp.path().clone();
     let destination_path = destination_temp.path().clone();
@@ -117,7 +117,7 @@ fn backup_and_restore() {
     assert!(backup_result.is_ok());
 
     let timestamp = 1000 * time::get_time().sec as u64;
-    let restore_temp = TempDir::new("backbonzo-restore").unwrap();
+    let restore_temp = TempDir::new("restore").unwrap();
     let restore_path = restore_temp.path().clone();
 
     let restore_result = backbonzo::restore(

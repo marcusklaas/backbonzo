@@ -8,7 +8,7 @@ extern crate time;
 
 use docopt::Docopt;
 use std::time::duration::Duration;
-use backbonzo::{init, backup, restore, BonzoError, BonzoResult};
+use backbonzo::{init, backup, restore, BonzoResult};
 
 static USAGE: &'static str = "
 backbonzo
@@ -84,10 +84,7 @@ fn handle_result<T>(result: BonzoResult<T>) {
     let mut stderr = std::io::stderr();
     
     match result {
-        Ok(..)                       => println!("Done!"),
-        Err(BonzoError::Database(e)) => { let _ = writeln!(&mut stderr, "Database error: {}", e.message); },
-        Err(BonzoError::Io(e))       => { let _ = writeln!(&mut stderr, "IO error: {}, {}", e.desc, e.detail.unwrap_or_default()); },
-        Err(BonzoError::Crypto(..))  => { let _ = writeln!(&mut stderr, "Crypto error!"); },
-        Err(BonzoError::Other(str))  => { let _ = writeln!(&mut stderr, "Error: {}", str) ; }
+        Ok(..)     => println!("Done!"),
+        Err(ref e) => { let _ = writeln!(&mut stderr, "{:?}", e); }
     }
 }

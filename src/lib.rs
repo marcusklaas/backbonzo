@@ -13,6 +13,7 @@ use std::error::FromError;
 use std::path::Path;
 use std::collections::RingBuf;
 use std::cmp::Ordering;
+use std::fmt;
 
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
@@ -49,6 +50,17 @@ impl FromError<SymmetricCipherError> for BonzoError {
 impl FromError<SqliteError> for BonzoError {
     fn from_error(error: SqliteError) -> BonzoError {
         BonzoError::Database(error)
+    }
+}
+
+impl fmt::Show for BonzoError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            BonzoError::Database(ref e) => write!(f, "Database error: {}", e.message),
+            BonzoError::Io(ref e)       => write!(f, "IO error: {}, {}", e.desc, e.detail.clone().unwrap_or_default()),
+            BonzoError::Crypto(..)      => write!(f, "Crypto error!"),
+            BonzoError::Other(ref str)  => write!(f, "Error: {}", str)
+        }
     }
 }
 
