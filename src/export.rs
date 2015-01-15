@@ -1,15 +1,15 @@
-use std::io::{IoResult, BufReader};
-use std::io::fs::{readdir, File, PathExtensions};
+use std::io::BufReader;
+use std::io::fs::{readdir, PathExtensions};
 use std::path::Path;
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
-use std::mem::forget;
 
 use bzip2::CompressionLevel;
 use bzip2::reader::BzCompressor;
 
 use super::database::Database;
 use super::crypto;
+use super::file_chunks::Chunks;
 use {Directory, BonzoResult, BonzoError};
 use super::spsc::{SingleReceiver, SingleSender, single_channel};
 
@@ -49,37 +49,6 @@ struct FileComplete {
     pub last_modified: u64,
     pub directory: Directory,
     pub block_id_list: Vec<Option<u32>>
-}
-
-/* FIXME: move me somewhere else -- probably lib.rs */
-// Semi-iterator which reads a file one block at a time. Is not a proper
-// Iterator because we only keep one block in memory at a time.
-pub struct Blocks<'a> {
-    file: File,
-    buffer: Vec<u8>
-}
-
-impl<'a> Blocks<'a> {
-    pub fn from_path(path: &Path, block_size: u32) -> IoResult<Blocks> {
-        let machine_block_size = block_size as usize;
-        let mut vec = Vec::with_capacity(machine_block_size);
-        let pointer = vec.as_mut_ptr();
-        
-        Ok(Blocks {
-            file: try!(File::open(path)),
-            buffer: unsafe {
-                forget(vec);
-                
-                Vec::from_raw_parts(pointer, machine_block_size, machine_block_size)
-            }
-        })
-    }
-    
-    pub fn next(&'a mut self) -> Option<&'a [u8]> {
-        self.file.read(self.buffer.as_mut_slice()).ok().map(move |bytes| {
-            self.buffer.slice(0, bytes)
-        })
-    }
 }
 
 // Manager which walks the file system and prepares files for backup. This
@@ -165,10 +134,10 @@ impl<'sender> ExportBlockSender<'sender> {
             return Ok(try!(self.database.persist_alias(directory, Some(file_id), filename.as_slice(), last_modified)));
         }
         
-        let mut blocks = try!(Blocks::from_path(path, self.block_size));
+        let mut chunks = try!(Chunks::from_path(path, self.block_size));
         let mut block_id_list = Vec::new();
         
-        while let Some(slice) = blocks.next() {
+        while let Some(slice) = chunks.next() {
             block_id_list.push(try!(self.export_block(slice)));
         }
         
@@ -232,12 +201,13 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Box<[u8; 32]>, 
                     .export_directory(&source_path, Directory::Root))
             }
         };
-    
-        if let Err(e) = result {
-            let _ = transmitter.send(FileInstruction::Error(e));
-        } else {
-            let _ = transmitter.send(FileInstruction::Done);
-        }
+
+        let instruction = match result {
+            Err(e) => FileInstruction::Error(e),
+            _      => FileInstruction::Done
+        };
+
+        transmitter.send(instruction);
     });
 
     receiver
@@ -245,8 +215,6 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Box<[u8; 32]>, 
 
 #[cfg(test)]
 mod test {
-    #![allow(unused_must_use)]
-    
     use std::io::TempDir;
     use std::io::Timer;
     use std::time::Duration;
@@ -261,20 +229,19 @@ mod test {
             let content = format!("file{}", i);
             let file_path = temp_dir.path().join(content.as_slice());
 
-            super::super::write_to_disk(&file_path, content.as_bytes());
+            super::super::write_to_disk(&file_path, content.as_bytes()).unwrap();
         }
 
         let password = "password123";
         let database_path = temp_dir.path().join("index.db3");
         let key = super::super::crypto::derive_key(password);
 
-        super::super::init(temp_dir.path().clone(), password);
+        super::super::init(temp_dir.path().clone(), password).unwrap();
 
         let receiver = super::start_export_thread(&database_path, key, 10000000, temp_dir.path().clone());
 
         // give the export thread plenty of time to process all files
-        let mut timer = Timer::new().unwrap();
-        timer.sleep(Duration::milliseconds(500));
+        Timer::new().unwrap().sleep(Duration::milliseconds(500));
 
         // we should receive two messages for each file: one for its block and
         // one for the file completion. the index also counts as a file

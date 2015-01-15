@@ -39,7 +39,6 @@ impl FromSql for Directory {
 }
 
 // TODO: abstractify database error
-// TODO: use references to Database instead of the value itself, so we may remove Copy trait?
 
 // An iterator over files in a state determined by the given timestamp. A file
 // is represented by its path and a list of block id's. 
@@ -270,12 +269,12 @@ impl Database {
             |row| (row.get::<String>(0), row.get::<String>(1))
         ));
 
-        let mut boxed_iv = Box::new([0u8; 16]);
-
         match iv_hex.as_slice().from_hex() {
-            Err(..)                      => Err(BonzoError::Other(format!("Couldn't parse hex"))),
-            Ok(ref iv) if iv.len() != 16 => Err(BonzoError::Other(format!("Unexpected iv length"))),
+            Err(..)                      => Err(BonzoError::Other(format!("Couldn't parse hex: {}", iv_hex))),
+            Ok(ref iv) if iv.len() != 16 => Err(BonzoError::Other(format!("Unexpected iv length from hex: {}", iv_hex))),
             Ok(iv)  => {
+                let mut boxed_iv = Box::new([0u8; 16]);
+                
                 for i in 0..16 {
                     boxed_iv[i] = iv[i];
                 }

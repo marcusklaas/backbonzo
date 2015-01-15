@@ -8,7 +8,7 @@ use super::rust_crypto::pbkdf2::pbkdf2;
 use super::rust_crypto::hmac::Hmac;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
-use super::export::Blocks;
+use super::file_chunks::Chunks;
 use std::io::IoResult;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
@@ -44,11 +44,11 @@ pub fn derive_key(password: &str) -> Box<[u8; 32]> {
 }
 
 // Returns the SHA256 hash of a file in hex encoding
-pub fn hash_file(path: &Path) -> IoResult<String> {    
+pub fn hash_file(path: &Path) -> IoResult<String> {
+    let mut chunks = try!(Chunks::from_path(path, 1024));
     let mut hasher = Sha256::new();
-    let mut blocks = try!(Blocks::from_path(path, 1024));
     
-    while let Some(slice) = blocks.next() {
+    while let Some(slice) = chunks.next() {
         hasher.input(slice);
     }
     

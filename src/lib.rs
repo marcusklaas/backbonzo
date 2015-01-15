@@ -31,6 +31,7 @@ mod database;
 mod crypto;
 mod export;
 mod summary;
+mod file_chunks;
 
 static DATABASE_FILENAME: &'static str = "index.db3";
 
