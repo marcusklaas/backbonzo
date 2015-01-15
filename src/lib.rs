@@ -135,10 +135,13 @@ impl BackupManager {
                     try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
                         .and(write_to_disk(&path, byte_slice)));
         
-                    try!(self.database.persist_block(block.hash.as_slice(), block.iv.as_slice())
+                    try!(self.database.persist_block(block.hash.as_slice(), &*block.iv)
                         .map(|id| id_queue.push_back(id)));
 
                     summary.add_block(byte_slice, block.source_byte_count);
+
+                    // FIXME: FOR DEBUGGING ONLY!!
+                    assert!(load_processed_block(&path, &*self.encryption_key, &*block.iv).is_ok());
                 },
                 FileInstruction::Complete(file) => {
                     let real_id_list = try!(file.block_id_list.iter()

@@ -234,7 +234,7 @@ impl Database {
         Ok(try!(self.persist_alias(directory, None, filename, try!(get_filesystem_time()))))
     }
 
-    pub fn persist_block(&self, hash: &str, iv: &[u8]) -> SqliteResult<u32> {
+    pub fn persist_block(&self, hash: &str, iv: &[u8; 16]) -> SqliteResult<u32> {
         try!(self.connection.execute(
             "INSERT INTO block (hash, iv_hex) VALUES ($1, $2);",
             &[&hash, &iv.to_hex().as_slice()]
@@ -415,5 +415,9 @@ mod test {
         let great_grand_children = db.get_subdirectories(grand_child).unwrap();
 
         assert_eq!(0us, great_grand_children.len());
+    }
+
+    #[test]
+    fn block_iv_storage() {
     }
 }
