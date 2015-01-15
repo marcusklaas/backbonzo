@@ -262,16 +262,26 @@ impl Database {
         )
     }
 
-    pub fn block_from_id(&self, id: u32) -> BonzoResult<(String, Vec<u8>)> {
+    // Fetches the block hash and iv
+    pub fn block_from_id(&self, id: u32) -> BonzoResult<(String, Box<[u8; 16]>)> {
         let (hash, iv_hex) = try!(self.connection.query_row_safe(
             "SELECT hash, iv_hex FROM block WHERE id = $1;",
             &[&(id as i64)],
             |row| (row.get::<String>(0), row.get::<String>(1))
         ));
 
+        let mut boxed_iv = Box::new([0u8; 16]);
+
         match iv_hex.as_slice().from_hex() {
-            Ok(iv)  => Ok((hash, iv)),
-            Err(..) => Err(BonzoError::Other(format!("Couldn't parse hex")))
+            Err(..)                      => Err(BonzoError::Other(format!("Couldn't parse hex"))),
+            Ok(ref iv) if iv.len() != 16 => Err(BonzoError::Other(format!("Unexpected iv length"))),
+            Ok(iv)  => {
+                for i in 0..16 {
+                    boxed_iv[i] = iv[i];
+                }
+                
+                Ok((hash, boxed_iv))
+            }
         }
     }
 

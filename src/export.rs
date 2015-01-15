@@ -89,14 +89,14 @@ impl<'a> Blocks<'a> {
 // the processing and writing of blocks can be done in parallel.
 pub struct ExportBlockSender<'sender> {
     database: Database,
-    encryption_key: Vec<u8>,
+    encryption_key: Box<[u8; 32]>,
     block_size: u32,
     sender: &'sender mut SingleSender<FileInstruction>,
     rng: OsRng
 }
 
 impl<'sender> ExportBlockSender<'sender> {
-    pub fn new(database: Database, encryption_key: Vec<u8>, block_size: u32, sender: &'sender mut SingleSender<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
+    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: u32, sender: &'sender mut SingleSender<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
         Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
@@ -196,7 +196,7 @@ impl<'sender> ExportBlockSender<'sender> {
         let mut iv = Box::new([0u8; 16]);
         self.rng.fill_bytes(iv.as_mut_slice());
 
-        let processed_bytes = try!(process_block(block, self.encryption_key.as_slice(), iv.as_slice()));
+        let processed_bytes = try!(process_block(block, &*self.encryption_key, &*iv));
 
         let _ = self.sender.send(FileInstruction::NewBlock(FileBlock {
             bytes: processed_bytes,
@@ -209,7 +209,7 @@ impl<'sender> ExportBlockSender<'sender> {
     }
 }
 
-pub fn process_block(clear_text: &[u8], key: &[u8], iv: &[u8]) -> BonzoResult<Vec<u8>> {
+pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {
     let mut compressor = BzCompressor::new(BufReader::new(clear_text), CompressionLevel::Smallest);
     let compressed_bytes = try!(compressor.read_to_end());
         
@@ -219,7 +219,7 @@ pub fn process_block(clear_text: &[u8], key: &[u8], iv: &[u8]) -> BonzoResult<Ve
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database_path: &Path, encryption_key: Vec<u8>, block_size: u32, source_path: Path) -> SingleReceiver<FileInstruction> {
+pub fn start_export_thread(database_path: &Path, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: Path) -> SingleReceiver<FileInstruction> {
     let (mut transmitter, receiver) = single_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
     let path = database_path.clone();
 

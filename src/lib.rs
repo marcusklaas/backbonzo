@@ -82,12 +82,11 @@ pub struct BackupManager {
     database: Database,
     source_path: Path,
     backup_path: Path,
-    encryption_key: Vec<u8>
+    encryption_key: Box<[u8; 32]>
 }
 
-
 impl BackupManager {
-    pub fn create(database_path: Path, source_path: Path, backup_path: Path, password: &str, key: Vec<u8>) -> BonzoResult<BackupManager> {
+    pub fn create(database_path: Path, source_path: Path, backup_path: Path, password: &str, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
         let manager = BackupManager {
             database: try!(Database::from_file(database_path)),
             source_path: source_path,
@@ -194,7 +193,7 @@ impl BackupManager {
         for block_id in block_list.iter() {
             let (hash, iv) = try!(self.database.block_from_id(*block_id));
             let block_path = block_output_path(&self.backup_path, hash.as_slice());
-            let bytes = try!(load_processed_block(&block_path, self.encryption_key.as_slice(), iv.as_slice()));
+            let bytes = try!(load_processed_block(&block_path, &*self.encryption_key, &*iv));
             let byte_slice = bytes.as_slice();
 
             summary.add_block(byte_slice);
@@ -225,7 +224,7 @@ impl BackupManager {
     // encrypted form
     fn export_index(self) -> BonzoResult<()> {
         let bytes = try!(self.database.to_bytes());
-        let procesed_bytes = try!(process_block(bytes.as_slice(), self.encryption_key.as_slice(), &[0u8; 16]));
+        let procesed_bytes = try!(process_block(bytes.as_slice(), &*self.encryption_key, &[0u8; 16]));
         let new_index = self.backup_path.join("index-new");
         let index = self.backup_path.join("index");
         
@@ -259,14 +258,13 @@ pub fn backup(source_path: Path, backup_path: Path, block_bytes: u32, password: 
 pub fn restore(source_path: Path, backup_path: Path, password: &str, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
     let temp_directory = try!(TempDir::new("bonzo"));
     let key = crypto::derive_key(password);
-    let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), key.as_slice()));
+    let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), &*key));
     let manager = try!(BackupManager::create(decrypted_index_path, source_path, backup_path, password, key));
     
     manager.restore(timestamp, filter)
 }
 
-// TODO: compressing and encrypting a block should be 1 function
-fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8]) -> BonzoResult<Path> {
+fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8; 32]) -> BonzoResult<Path> {
     let decrypted_index_path = temp_dir.join(DATABASE_FILENAME);
     let bytes = try!(load_processed_block(&backup_path.join("index"), key, &[0u8; 16]));
 
@@ -275,7 +273,7 @@ fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8]) -> BonzoResult
     Ok(decrypted_index_path)
 }
 
-fn load_processed_block(path: &Path, key: &[u8], iv: &[u8]) -> BonzoResult<Vec<u8>> {
+fn load_processed_block(path: &Path, key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {
     let contents = try!(File::open(path).and_then(|mut file| file.read_to_end()));
     let decrypted_bytes = try!(crypto::decrypt_block(contents.as_slice(), key, iv));
     let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
@@ -291,11 +289,11 @@ fn block_output_path(base_path: &Path, hash: &str) -> Path {
     base_path.join_many(&[hash.slice(0, 2), hash])
 }
 
-// FIXME: this will call fsync even when write fails?
 fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
-    File::create(path).and_then(|mut file| {
-        file.write(bytes).and(file.fsync())
-    })
+    let mut file = try!(File::create(path));
+
+    try!(file.write(bytes));
+    file.fsync()
 }
 
 #[cfg(test)]
@@ -345,15 +343,22 @@ mod test {
 
     #[test]
     fn compression() {
-        let original = "71d6e2f35502c03743f676449c503f487de29988".as_bytes();
-
-        let mut compressor = BzCompressor::new(BufReader::new(original), CompressionLevel::Smallest);
-        let compressed_bytes = compressor.read_to_end().unwrap();
+        let mut rng = OsRng::new().ok().unwrap();
+        let mut original: [u8; 10000] = [0; 10000];
         
-        let mut decompressor = BzDecompressor::new(BufReader::new(compressed_bytes.as_slice()));
-            
-        let decompresed_bytes = decompressor.read_to_end();
+        for _ in 0..100 {
+            rng.fill_bytes(&mut original);
+            let index = rng.gen::<u32>() % 10000;
+            let slice = original.slice(0, index as usize);
 
-        assert!(decompresed_bytes.is_ok());
+            let mut compressor = BzCompressor::new(BufReader::new(slice), CompressionLevel::Smallest);
+            let compressed_bytes = compressor.read_to_end().unwrap();
+            
+            let mut decompressor = BzDecompressor::new(BufReader::new(compressed_bytes.as_slice()));
+                
+            let decompresed_bytes = decompressor.read_to_end().unwrap();
+
+            assert_eq!(slice, decompresed_bytes.as_slice());
+        }
     }
 }

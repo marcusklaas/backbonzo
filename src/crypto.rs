@@ -10,7 +10,6 @@ use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use super::export::Blocks;
 use std::io::IoResult;
-use std::iter::repeat;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
@@ -34,9 +33,9 @@ pub fn check_password(password: &str, hash: &str) -> bool {
 // important that we use an algorithm that is not similar to the one to hash
 // the password for storage. One could otherwise use the stored hash to gain
 // information on the key used for {en,de}cryption.
-pub fn derive_key(password: &str) -> Vec<u8> {
+pub fn derive_key(password: &str) -> Box<[u8; 32]> {
     let salt = [0; 16];
-    let mut derived_key = repeat(0).take(32).collect::<Vec<u8>>();
+    let mut derived_key = Box::new([0u8; 32]);
     let mut mac = Hmac::new(Sha256::new(), password.as_bytes());
     
     pbkdf2(&mut mac, &salt, 100000, derived_key.as_mut_slice());
@@ -64,14 +63,9 @@ pub fn hash_block(block: &[u8]) -> String {
     hasher.result_str()
 }
 
-// FIXME: maybe we can take a Box<[u8; 32]> and Box<[u8; 16]> to enforce proper length of key/ iv
-// and we should still refactor this so it shares less code with decrypt_block
-pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
-    if key.len() != 32 || iv.len() != 16 {
-        return Err(SymmetricCipherError::InvalidLength);
-    }
-    
-    let mut encryptor = cbc_encryptor(KeySize::KeySize256, key, iv, PkcsPadding);
+// FIXME: we should still refactor this so it shares less code with decrypt_block
+pub fn encrypt_block(block: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Result<Vec<u8>, SymmetricCipherError> {
+    let mut encryptor = cbc_encryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0; 4096];
     let mut read_buffer = RefReadBuffer::new(block);
@@ -88,12 +82,8 @@ pub fn encrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Sym
 
 // Decrypts a given block of AES256-CBC data using a 32 byte key and 16 byte
 // initialization vector. Returns error on incorrect passwords 
-pub fn decrypt_block(block: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, SymmetricCipherError> {
-    if key.len() != 32 || iv.len() != 16 {
-        return Err(SymmetricCipherError::InvalidLength); // FIXME: is this correct error? not clear which one is wrong length.
-    }
-    
-    let mut decryptor = cbc_decryptor(KeySize::KeySize256, key, iv, PkcsPadding);
+pub fn decrypt_block(block: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Result<Vec<u8>, SymmetricCipherError> {    
+    let mut decryptor = cbc_decryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0; 4096];
     let mut read_buffer = RefReadBuffer::new(block);
@@ -120,15 +110,19 @@ mod test {
         let mut key: [u8; 32] = [0; 32];
         let mut iv: [u8; 16] = [0; 16];
         let mut rng = OsRng::new().ok().unwrap();
+
+        for _ in 0..100 {
+            rng.fill_bytes(&mut data);
+            rng.fill_bytes(&mut key);
+            rng.fill_bytes(&mut iv);
         
-        rng.fill_bytes(&mut key);
-        rng.fill_bytes(&mut iv);
-        rng.fill_bytes(&mut data);
+            let index = rng.gen::<u32>() % 100000;
+            let slice = data.slice(0, index as usize);
+            let encrypted_data = super::encrypt_block(slice, &key, &iv).ok().unwrap();
+            let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key, &iv).ok().unwrap();
 
-        let encrypted_data = super::encrypt_block(&data, &key, &iv).ok().unwrap();
-        let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key, &iv).ok().unwrap();
-
-        assert!(data.as_slice() == decrypted_data.as_slice());
+            assert!(slice == decrypted_data.as_slice());
+        }
     }
 
     #[test]
@@ -153,25 +147,9 @@ mod test {
     }
 
     #[test]
-    fn encryption_bad_iv() {
-        let message = "hello, world!";
-        let key = [1u8; 32];
-        let iv = [0u8; 32];
-        
-        let bad_encrypt = super::encrypt_block(message.as_bytes(), &key, &iv);
-
-        assert!(bad_encrypt.is_err());
-    }
-
-    #[test]
     fn key_derivation() {
-        let key: Vec<u8> = super::derive_key("test");
-
-        assert_eq!(32us, key.len());
-
+        let key = super::derive_key("test");
         let key_two = super::derive_key("testk");
-
-        assert_eq!(32us, key.len());
 
         assert!(key.as_slice() != key_two.as_slice());
     }
