@@ -7,11 +7,11 @@ use backbonzo::BonzoError;
 use std::io::TempDir;
 use std::io::fs::{File, PathExtensions, mkdir_recursive};
 use std::time::duration::Duration;
-//use std::rand::{Rng, OsRng};
+// use std::rand::{Rng, OsRng};
 
 #[test]
 fn init() {
-    let dir = TempDir::new("backbonzo-test").unwrap();
+    let dir = TempDir::new("init").unwrap();
     let password = "testpassword";
 
     let result = backbonzo::init(dir.path().clone(), password.clone());

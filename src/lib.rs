@@ -302,8 +302,33 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
 mod test {
     use std::io::{BufReader, TempDir};
     use std::io::fs::File;
+    use std::rand::{Rng, OsRng};
     use super::bzip2::reader::{BzDecompressor, BzCompressor};
     use super::bzip2::CompressionLevel;
+
+    #[test]
+    fn process_reversability() {
+        let dir = TempDir::new("reverse").unwrap();
+        let bytes = "71d6e2f35502c03743f676449c503f487de29988".as_bytes();
+        let file_path = dir.path().join("hash.txt");
+
+        let mut key: [u8; 32] = [0; 32];
+        let mut iv: [u8; 16] = [0; 16];
+        let mut rng = OsRng::new().ok().unwrap();
+        
+        rng.fill_bytes(&mut key);
+        rng.fill_bytes(&mut iv);
+
+        let processed_bytes = super::export::process_block(bytes, &key, &iv).unwrap();
+        
+        let mut file = File::create(&file_path).unwrap();
+        assert!(file.write(processed_bytes.as_slice()).is_ok());
+        assert!(file.fsync().is_ok());
+
+        let retrieved_bytes = super::load_processed_block(&file_path, &key, &iv).unwrap();
+
+        assert_eq!(bytes.as_slice(), retrieved_bytes.as_slice());
+    }
     
     #[test]
     fn write_to_disk() {
@@ -324,12 +349,6 @@ mod test {
 
         let mut compressor = BzCompressor::new(BufReader::new(original), CompressionLevel::Smallest);
         let compressed_bytes = compressor.read_to_end().unwrap();
-        
-        // let bytes = [117u8, 89, 61, 184, 165, 240, 246, 17, 68, 18, 90, 154, 84, 88, 103, 167, 11, 73, 0, 0, 16, 127,
-        //  224, 15, 0, 32, 0, 49, 76, 0, 1, 19, 38, 0, 158, 165, 70, 29, 249, 204, 33, 98, 234, 245, 227, 93, 134, 44,
-        //  225, 80, 32, 134, 130, 234, 26, 75, 226, 238, 72, 167, 10, 18, 11, 243, 119, 8, 32];
-
-        // assert_eq!(compressed_bytes.as_slice(), bytes.as_slice());
         
         let mut decompressor = BzDecompressor::new(BufReader::new(compressed_bytes.as_slice()));
             
