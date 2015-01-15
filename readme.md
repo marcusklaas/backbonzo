@@ -40,10 +40,10 @@ priority todo list
 ------------------
 
 - [ ] write some documentation on how to use backbonzo
-- [ ] take parameters/ read from configuration file
 - [ ] add tests
-- [ ] implement simple logging
 - [ ] add clean up command
+- [x] implement simple logging
+- [x] take parameters
 - [x] implement partial restoration
 - [x] deflate blocks before encryption
 - [x] find a way to deal with empty files

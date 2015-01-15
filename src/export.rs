@@ -34,7 +34,8 @@ pub enum FileInstruction {
 struct FileBlock {
     pub bytes: Vec<u8>,
     pub iv: Box<[u8; 16]>,
-    pub hash: String
+    pub hash: String,
+    pub source_byte_count: u64
 }
 
 // This is sent *after* all the blocks of a file have been transferred. It is
@@ -202,7 +203,8 @@ impl<'sender> ExportBlockSender<'sender> {
         let _ = self.sender.send(FileInstruction::NewBlock(FileBlock {
             bytes: encrypted_bytes,
             iv: iv,
-            hash: hash
+            hash: hash,
+            source_byte_count: block.len() as u64
         }));
 
         Ok(None)

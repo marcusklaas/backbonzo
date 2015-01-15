@@ -8,6 +8,7 @@ extern crate time;
 
 use docopt::Docopt;
 use std::time::duration::Duration;
+use std::fmt::Show;
 use backbonzo::{init, backup, restore, BonzoResult};
 
 static USAGE: &'static str = "
@@ -67,22 +68,29 @@ fn main() {
     };
     let password = args.flag_key.as_slice();
 
-    let result = match args.arg_OPERATION {
-        Operation::Init    => init(source_path, password),
-        Operation::Restore => restore(source_path, backup_path, password, timestamp, args.flag_filter),
-        Operation::Backup  => backup(source_path, backup_path, block_bytes, password, deadline)
-    };
-    
-    handle_result(result);
+    match args.arg_OPERATION {
+        Operation::Init    => {
+            let result = init(source_path, password);
+            handle_result(result);
+        },
+        Operation::Restore =>  {
+            let result = restore(source_path, backup_path, password, timestamp, args.flag_filter);
+            handle_result(result);
+        },
+        Operation::Backup  =>  {
+            let result = backup(source_path, backup_path, block_bytes, password, deadline);
+            handle_result(result);
+        }
+    }
 }
 
 // Writes the result of the program to stdio in case of success, or stderr when
 // it failed
-fn handle_result<T>(result: BonzoResult<T>) {
+fn handle_result<T: Show>(result: BonzoResult<T>) {
     let mut stderr = std::io::stderr();
     
     match result {
-        Ok(..)     => println!("Done!"),
-        Err(ref e) => { let _ = writeln!(&mut stderr, "{:?}", e); }
+        Ok(summary) => println!("{:?}", summary),
+        Err(ref e)  => { let _ = writeln!(&mut stderr, "{:?}", e); }
     }
 }

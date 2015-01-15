@@ -13,6 +13,8 @@ time = "*"
 glob = "*"
 rustc-serialize = "*"
 rusqlite = "*"
+regex = "*" # for tests only -- shouldnt be linked in otherwise
+regex_macros = "*"
 
 [dependencies.rust-crypto]
 git = "https://github.com/dagenix/rust-crypto"

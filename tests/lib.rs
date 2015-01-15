@@ -135,3 +135,5 @@ fn backup_and_restore() {
 }
 
 // TODO: add test playing with timestamps, and one toying with removals/ renames
+
+// TODO: add tests for results
