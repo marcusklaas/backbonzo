@@ -87,7 +87,7 @@ fn backup_and_restore() {
     assert!(mkdir_recursive(&source_path.join("test"), std::io::FilePermission::all()).is_ok());
 
     let filenames = ["test/welcome.txt", "welco.yolo", "smth_diffrent.jpg"];
-    let bytes = "Hello, world!".as_bytes();
+    let bytes = "71d6e2f35502c03743f676449c503f487de29988".as_bytes();
 
     for filename in filenames.iter() {
         let file_path = source_path.join(filename);

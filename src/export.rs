@@ -196,12 +196,10 @@ impl<'sender> ExportBlockSender<'sender> {
         let mut iv = Box::new([0u8; 16]);
         self.rng.fill_bytes(iv.as_mut_slice());
 
-        let mut compressor = BzCompressor::new(BufReader::new(block), CompressionLevel::Smallest);
-        let compressed_bytes = try!(compressor.read_to_end());
-        let encrypted_bytes = try!(crypto::encrypt_block(compressed_bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice()));
+        let processed_bytes = try!(process_block(block, self.encryption_key.as_slice(), iv.as_slice()));
 
         let _ = self.sender.send(FileInstruction::NewBlock(FileBlock {
-            bytes: encrypted_bytes,
+            bytes: processed_bytes,
             iv: iv,
             hash: hash,
             source_byte_count: block.len() as u64
@@ -209,6 +207,13 @@ impl<'sender> ExportBlockSender<'sender> {
 
         Ok(None)
     }
+}
+
+pub fn process_block(clear_text: &[u8], key: &[u8], iv: &[u8]) -> BonzoResult<Vec<u8>> {
+    let mut compressor = BzCompressor::new(BufReader::new(clear_text), CompressionLevel::Smallest);
+    let compressed_bytes = try!(compressor.read_to_end());
+        
+    Ok(try!(crypto::encrypt_block(compressed_bytes.as_slice(), key, iv)))
 }
 
 // Starts a new thread in which the given source path is recursively walked

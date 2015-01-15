@@ -23,7 +23,7 @@ use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use rust_crypto::symmetriccipher::SymmetricCipherError;
 
-use export::FileInstruction;
+use export::{process_block, FileInstruction};
 use database::{Database, SqliteError};
 use summary::{RestorationSummary, BackupSummary};
 
@@ -194,12 +194,8 @@ impl BackupManager {
         for block_id in block_list.iter() {
             let (hash, iv) = try!(self.database.block_from_id(*block_id));
             let block_path = block_output_path(&self.backup_path, hash.as_slice());
-            let mut block_file = try!(File::open(&block_path));
-            let bytes = try!(block_file.read_to_end());
-            let decrypted_bytes = try!(crypto::decrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), iv.as_slice()));
-            let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
-            let decompresed_bytes = try!(decompressor.read_to_end());
-            let byte_slice = decompresed_bytes.as_slice();
+            let bytes = try!(load_processed_block(&block_path, self.encryption_key.as_slice(), iv.as_slice()));
+            let byte_slice = bytes.as_slice();
 
             summary.add_block(byte_slice);
 
@@ -227,15 +223,13 @@ impl BackupManager {
 
     // Closes the database connection and saves it to the backup destination in
     // encrypted form
-    // TODO: deflate index
     fn export_index(self) -> BonzoResult<()> {
         let bytes = try!(self.database.to_bytes());
-        let iv = [0u8; 16];
-        let encrypted_bytes = try!(crypto::encrypt_block(bytes.as_slice(), self.encryption_key.as_slice(), &iv));
+        let procesed_bytes = try!(process_block(bytes.as_slice(), self.encryption_key.as_slice(), &[0u8; 16]));
         let new_index = self.backup_path.join("index-new");
         let index = self.backup_path.join("index");
         
-        try!(write_to_disk(&new_index, encrypted_bytes.as_slice()));
+        try!(write_to_disk(&new_index, procesed_bytes.as_slice()));
         try!(copy(&new_index, &index));
         
         Ok(try!(unlink(&new_index)))
@@ -272,18 +266,25 @@ pub fn restore(source_path: Path, backup_path: Path, password: &str, timestamp: 
 }
 
 // TODO: compressing and encrypting a block should be 1 function
-// TODO: reading, decrypting & inflating block should be 1 function
 fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8]) -> BonzoResult<Path> {
-    let encrypted_index_path = backup_path.join("index");
     let decrypted_index_path = temp_dir.join(DATABASE_FILENAME);
-    let mut file = try!(File::open(&encrypted_index_path));
-    let contents = try!(file.read_to_end());
-    let iv = [0u8; 16];
-    let decrypted_content = try!(crypto::decrypt_block(contents.as_slice(), key, &iv));
+    let bytes = try!(load_processed_block(&backup_path.join("index"), key, &[0u8; 16]));
 
-    try!(write_to_disk(&decrypted_index_path, decrypted_content.as_slice()));
+    try!(write_to_disk(&decrypted_index_path, bytes.as_slice()));
 
     Ok(decrypted_index_path)
+}
+
+fn load_processed_block(path: &Path, key: &[u8], iv: &[u8]) -> BonzoResult<Vec<u8>> {
+    let contents = try!(File::open(path).and_then(|mut file| file.read_to_end()));
+    let decrypted_bytes = try!(crypto::decrypt_block(contents.as_slice(), key, iv));
+    let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
+    
+    Ok(try!(decompressor.read_to_end().map_err(|mut e| {
+        e.detail = Some(format!("Failed decompression of file {}. Bytes: {:?}", path.display(), decrypted_bytes));
+
+        e
+    })))
 }
 
 fn block_output_path(base_path: &Path, hash: &str) -> Path {
@@ -299,8 +300,10 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
 
 #[cfg(test)]
 mod test {
-    use std::io::TempDir;
+    use std::io::{BufReader, TempDir};
     use std::io::fs::File;
+    use super::bzip2::reader::{BzDecompressor, BzCompressor};
+    use super::bzip2::CompressionLevel;
     
     #[test]
     fn write_to_disk() {
@@ -313,5 +316,25 @@ mod test {
         let mut file = File::open(&file_path).unwrap();
 
         assert!(file.read_to_end().unwrap().as_slice() == message.as_bytes());
+    }
+
+    #[test]
+    fn compression() {
+        let original = "71d6e2f35502c03743f676449c503f487de29988".as_bytes();
+
+        let mut compressor = BzCompressor::new(BufReader::new(original), CompressionLevel::Smallest);
+        let compressed_bytes = compressor.read_to_end().unwrap();
+        
+        // let bytes = [117u8, 89, 61, 184, 165, 240, 246, 17, 68, 18, 90, 154, 84, 88, 103, 167, 11, 73, 0, 0, 16, 127,
+        //  224, 15, 0, 32, 0, 49, 76, 0, 1, 19, 38, 0, 158, 165, 70, 29, 249, 204, 33, 98, 234, 245, 227, 93, 134, 44,
+        //  225, 80, 32, 134, 130, 234, 26, 75, 226, 238, 72, 167, 10, 18, 11, 243, 119, 8, 32];
+
+        // assert_eq!(compressed_bytes.as_slice(), bytes.as_slice());
+        
+        let mut decompressor = BzDecompressor::new(BufReader::new(compressed_bytes.as_slice()));
+            
+        let decompresed_bytes = decompressor.read_to_end();
+
+        assert!(decompresed_bytes.is_ok());
     }
 }
