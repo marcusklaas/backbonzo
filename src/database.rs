@@ -203,6 +203,10 @@ impl Database {
     }
 
     pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
+        if let Some(..) = try!(self.file_from_hash(hash)) {
+            return Ok(());
+        }
+        
         let transaction = try!(self.connection.transaction());
 
         try!(self.connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
@@ -235,12 +239,22 @@ impl Database {
     }
 
     pub fn persist_block(&self, hash: &str, iv: &[u8; 16]) -> SqliteResult<u32> {
+        if let Some(id) = try!(self.block_id_from_hash(hash)) {
+            return Ok(id)
+        }
+
+        let transaction = try!(self.connection.transaction());
+        
         try!(self.connection.execute(
             "INSERT INTO block (hash, iv_hex) VALUES ($1, $2);",
             &[&hash, &iv.to_hex().as_slice()]
         ));
 
-        Ok(self.connection.last_insert_rowid() as u32)
+        let id = self.connection.last_insert_rowid() as u32;
+
+        try!(transaction.commit());
+
+        Ok(id)
     }
 
     pub fn file_from_hash(&self, hash: &str) -> SqliteResult<Option<u32>> {
@@ -305,11 +319,18 @@ impl Database {
         if let Some(directory) = possible_directory {
             return Ok(directory);
         }
+
+        let transaction = try!(self.connection.transaction());
         
         let insert_query = "INSERT INTO directory (parent_id, name) VALUES ($1, $2);";
         
-        self.connection.execute(insert_query, &[&parent, &name])
-            .and(Ok(Directory::Child(self.connection.last_insert_rowid())))
+        try!(self.connection.execute(insert_query, &[&parent, &name]));
+        
+        let dir = Directory::Child(self.connection.last_insert_rowid());
+
+        try!(transaction.commit());
+
+        Ok(dir)
     }
 
     pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<i32> {
@@ -336,7 +357,8 @@ impl Database {
             "INSERT INTO directory (id, name) VALUES (0, \".\");",
             "CREATE TABLE file (
                 id           INTEGER PRIMARY KEY,
-                hash         TEXT NOT NULL
+                hash         TEXT NOT NULL,
+                UNIQUE(hash)
             );",
             "CREATE INDEX file_hash_index ON file (hash)",
             "CREATE TABLE alias (
@@ -352,7 +374,8 @@ impl Database {
             "CREATE TABLE block (
                 id           INTEGER PRIMARY KEY,
                 hash         TEXT NOT NULL,
-                iv_hex       TEXT NOT NULL
+                iv_hex       TEXT NOT NULL,
+                UNIQUE(hash)
             );",
             "CREATE INDEX block_hash_index ON block (hash)",
             "CREATE TABLE fileblock (

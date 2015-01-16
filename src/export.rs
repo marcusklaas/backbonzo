@@ -43,6 +43,7 @@ struct FileBlock {
 // id list is encoded as a vector of Options. Known blocks are represented by
 // Some(id), and new blocks are represented by None as we don't known the id
 // before they are persisted to the index
+#[derive(Show)]
 struct FileComplete {
     pub filename: String,
     pub hash: String,
@@ -141,13 +142,13 @@ impl<'sender> ExportBlockSender<'sender> {
             block_id_list.push(try!(self.export_block(slice)));
         }
         
-        let _ = self.sender.send(FileInstruction::Complete(FileComplete {
+        try!(self.sender.send(FileInstruction::Complete(FileComplete {
             filename: filename,
             hash: hash,
             last_modified: last_modified,
             directory: directory,
             block_id_list: block_id_list
-        }));
+        })).map_err(|_| BonzoError::Other(format!("Failed sending file"))));
 
         Ok(())
     }
@@ -167,12 +168,12 @@ impl<'sender> ExportBlockSender<'sender> {
 
         let processed_bytes = try!(process_block(block, &*self.encryption_key, &*iv));
 
-        let _ = self.sender.send(FileInstruction::NewBlock(FileBlock {
+        try!(self.sender.send(FileInstruction::NewBlock(FileBlock {
             bytes: processed_bytes,
             iv: iv,
             hash: hash,
             source_byte_count: block.len() as u64
-        }));
+        })).map_err(|_| BonzoError::Other(format!("Failed sending block"))));
 
         Ok(None)
     }

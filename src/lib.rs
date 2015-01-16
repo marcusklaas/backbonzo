@@ -139,15 +139,17 @@ impl BackupManager {
                         .map(|id| id_queue.push_back(id)));
 
                     summary.add_block(byte_slice, block.source_byte_count);
-
-                    // FIXME: FOR DEBUGGING ONLY!!
-                    assert!(load_processed_block(&path, &*self.encryption_key, &*block.iv).is_ok());
                 },
                 FileInstruction::Complete(file) => {
                     let real_id_list = try!(file.block_id_list.iter()
-                        .map(|&id| id.or(id_queue.pop_front()))
+                        .map(|&id| match id {
+                            ok@Some(..) => ok,
+                            None        => id_queue.pop_front()
+                        })
                         .collect::<Option<Vec<u32>>>()
                         .ok_or(BonzoError::Other(format!("Block buffer is empty"))));
+
+                    assert!(id_queue.len() == 0);
 
                     try!(self.database.persist_file(
                         file.directory,
@@ -197,7 +199,16 @@ impl BackupManager {
         for block_id in block_list.iter() {
             let (hash, iv) = try!(self.database.block_from_id(*block_id));
             let block_path = block_output_path(&self.backup_path, hash.as_slice());
-            let bytes = try!(load_processed_block(&block_path, &*self.encryption_key, &*iv));
+            
+            let bytes = match load_processed_block(&block_path, &*self.encryption_key, &*iv) {
+                Ok(byts) => byts,
+                Err(e)   => {
+                    println!("Block id: {}, file: {}", block_id, path.display());
+
+                    return Err(e);
+                }
+            };
+            
             let byte_slice = bytes.as_slice();
 
             summary.add_block(byte_slice);
@@ -244,7 +255,8 @@ pub fn init(source_path: Path, password: &str) -> BonzoResult<()> {
     let database = try!(Database::create(database_path));
     let hash = try!(crypto::hash_password(password));
 
-    try!(database.setup().and(database.set_key("password", hash.as_slice())));
+    try!(database.setup());
+    try!(database.set_key("password", hash.as_slice()));
 
     Ok(())
 }
