@@ -131,20 +131,33 @@ impl BackupManager {
                 FileInstruction::NewBlock(block) => {
                     let path = block_output_path(&self.backup_path, block.hash.as_slice());
                     let byte_slice = block.bytes.as_slice();
+
+                    // make sure block has not already been persisted
+                    // TODO: can we refactor this bit?
+                    if let Some(id) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
+                        id_queue.push_back(id);
+                        
+                        continue;
+                    }
                     
                     try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
                         .and(write_to_disk(&path, byte_slice)));
         
-                    try!(self.database.persist_block(block.hash.as_slice(), block.iv.as_slice())
+                    try!(self.database.persist_block(block.hash.as_slice(), &*block.iv)
                         .map(|id| id_queue.push_back(id)));
 
                     summary.add_block(byte_slice, block.source_byte_count);
                 },
                 FileInstruction::Complete(file) => {
                     let real_id_list = try!(file.block_id_list.iter()
-                        .map(|&id| id.or(id_queue.pop_front()))
+                        .map(|&id| match id {
+                            ok@Some(..) => ok,
+                            None        => id_queue.pop_front()
+                        })
                         .collect::<Option<Vec<u32>>>()
                         .ok_or(BonzoError::Other(format!("Block buffer is empty"))));
+
+                    assert!(id_queue.len() == 0);
 
                     try!(self.database.persist_file(
                         file.directory,
@@ -244,7 +257,8 @@ pub fn init(source_path: Path, password: &str) -> BonzoResult<()> {
     let database = try!(Database::create(database_path));
     let hash = try!(crypto::hash_password(password));
 
-    try!(database.setup().and(database.set_key("password", hash.as_slice())));
+    try!(database.setup());
+    try!(database.set_key("password", hash.as_slice()));
 
     Ok(())
 }
@@ -282,11 +296,7 @@ fn load_processed_block(path: &Path, key: &[u8; 32], iv: &[u8; 16]) -> BonzoResu
     let decrypted_bytes = try!(crypto::decrypt_block(contents.as_slice(), key, iv));
     let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
     
-    Ok(try!(decompressor.read_to_end().map_err(|mut e| {
-        e.detail = Some(format!("Failed decompression of file {}. Bytes: {:?}", path.display(), decrypted_bytes));
-
-        e
-    })))
+    Ok(try!(decompressor.read_to_end()))
 }
 
 fn block_output_path(base_path: &Path, hash: &str) -> Path {

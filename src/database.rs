@@ -203,6 +203,11 @@ impl Database {
     }
 
     pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
+        // FIXME: should this be here?
+        if let Some(..) = try!(self.file_from_hash(hash)) {
+            return Ok(());
+        }
+        
         let transaction = try!(self.connection.transaction());
 
         try!(self.connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
@@ -234,7 +239,7 @@ impl Database {
         Ok(try!(self.persist_alias(directory, None, filename, try!(get_filesystem_time()))))
     }
 
-    pub fn persist_block(&self, hash: &str, iv: &[u8]) -> SqliteResult<u32> {
+    pub fn persist_block(&self, hash: &str, iv: &[u8; 16]) -> SqliteResult<u32> {
         try!(self.connection.execute(
             "INSERT INTO block (hash, iv_hex) VALUES ($1, $2);",
             &[&hash, &iv.to_hex().as_slice()]
@@ -306,10 +311,12 @@ impl Database {
             return Ok(directory);
         }
         
-        let insert_query = "INSERT INTO directory (parent_id, name) VALUES ($1, $2);";
+        try!(self.connection.execute(
+            "INSERT INTO directory (parent_id, name) VALUES ($1, $2);",
+            &[&parent, &name]
+        ));
         
-        self.connection.execute(insert_query, &[&parent, &name])
-            .and(Ok(Directory::Child(self.connection.last_insert_rowid())))
+        Ok(Directory::Child(self.connection.last_insert_rowid()))
     }
 
     pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<i32> {
@@ -336,7 +343,8 @@ impl Database {
             "INSERT INTO directory (id, name) VALUES (0, \".\");",
             "CREATE TABLE file (
                 id           INTEGER PRIMARY KEY,
-                hash         TEXT NOT NULL
+                hash         TEXT NOT NULL,
+                UNIQUE(hash)
             );",
             "CREATE INDEX file_hash_index ON file (hash)",
             "CREATE TABLE alias (
@@ -352,7 +360,8 @@ impl Database {
             "CREATE TABLE block (
                 id           INTEGER PRIMARY KEY,
                 hash         TEXT NOT NULL,
-                iv_hex       TEXT NOT NULL
+                iv_hex       TEXT NOT NULL,
+                UNIQUE(hash)
             );",
             "CREATE INDEX block_hash_index ON block (hash)",
             "CREATE TABLE fileblock (
@@ -417,5 +426,9 @@ mod test {
         let great_grand_children = db.get_subdirectories(grand_child).unwrap();
 
         assert_eq!(0us, great_grand_children.len());
+    }
+
+    #[test]
+    fn block_iv_storage() {
     }
 }
