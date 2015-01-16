@@ -170,18 +170,21 @@ impl BackupManager {
     pub fn restore(&self, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
         let pattern = Pattern::new(filter.as_slice());
         let mut summary = RestorationSummary::new();
-
-        // FIXME: this keeps going even after an error has occured
-        try!(database::Aliases::new(
+        
+        let aliases = try!(database::Aliases::new(
             &self.database,
             self.source_path.clone(),
             Directory::Root,
             timestamp
-        ))
-            .filter(|&(ref path, _)| pattern.matches_path(path))
-            .map(|(path, block_list)| self.restore_file(&path, block_list.as_slice(), &mut summary))
-            .fold(Ok(()), |a, b| a.and(b))
-            .and(Ok(summary))        
+        ));
+
+        let mut iter = aliases.filter(|&(ref path, _)| pattern.matches_path(path));
+
+        for (path, block_list) in iter {
+            try!(self.restore_file(&path, block_list.as_slice(), &mut summary));
+        }
+        
+        Ok(summary)      
     }
 
     // Restores a single file by decrypting and inflating a sequence of blocks

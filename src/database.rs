@@ -325,7 +325,7 @@ impl Database {
     }
 
     pub fn setup(&self) -> SqliteResult<()> {
-        [
+        let queries = [
             "CREATE TABLE directory (
                 id        INTEGER PRIMARY KEY,
                 parent_id INTEGER,
@@ -367,11 +367,13 @@ impl Database {
                 key          TEXT PRIMARY KEY,
                 value        TEXT
             );"
-        ]
-            .iter()
-            .map(|query| self.connection.execute(*query, &[]))
-            .fold(Ok((0)), |a, b| a.and(b))
-            .map(|_|())
+        ];
+
+        for query in queries.iter() {
+            try!(self.connection.execute(*query, &[]));
+        }
+
+        Ok(())
     }
 }
 

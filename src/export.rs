@@ -111,10 +111,11 @@ impl<'sender> ExportBlockSender<'sender> {
             }
         }
 
-        // this traverses the whole list, even if we find a None early on
-        deleted_filenames.iter().map(|filename|
-            self.database.persist_null_alias(directory, filename.as_slice())
-        ).fold(Ok(()), |a, b| a.and(b))
+        for filename in deleted_filenames.iter() {
+            try!(self.database.persist_null_alias(directory, filename.as_slice()));
+        }
+
+        Ok(())
     }
 
     // Tries to backup file. When the file was already in the database, it does
@@ -207,7 +208,7 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Box<[u8; 32]>, 
             _      => FileInstruction::Done
         };
 
-        transmitter.send(instruction);
+        let _ = transmitter.send(instruction);
     });
 
     receiver
