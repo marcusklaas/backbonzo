@@ -131,6 +131,14 @@ impl BackupManager {
                 FileInstruction::NewBlock(block) => {
                     let path = block_output_path(&self.backup_path, block.hash.as_slice());
                     let byte_slice = block.bytes.as_slice();
+
+                    // make sure block has not already been persisted
+                    // TODO: can we refactor this bit?
+                    if let Some(id) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
+                        id_queue.push_back(id);
+                        
+                        continue;
+                    }
                     
                     try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
                         .and(write_to_disk(&path, byte_slice)));
@@ -199,16 +207,7 @@ impl BackupManager {
         for block_id in block_list.iter() {
             let (hash, iv) = try!(self.database.block_from_id(*block_id));
             let block_path = block_output_path(&self.backup_path, hash.as_slice());
-            
-            let bytes = match load_processed_block(&block_path, &*self.encryption_key, &*iv) {
-                Ok(byts) => byts,
-                Err(e)   => {
-                    println!("Block id: {}, file: {}", block_id, path.display());
-
-                    return Err(e);
-                }
-            };
-            
+            let bytes = try!(load_processed_block(&block_path, &*self.encryption_key, &*iv));
             let byte_slice = bytes.as_slice();
 
             summary.add_block(byte_slice);
@@ -294,11 +293,7 @@ fn load_processed_block(path: &Path, key: &[u8; 32], iv: &[u8; 16]) -> BonzoResu
     let decrypted_bytes = try!(crypto::decrypt_block(contents.as_slice(), key, iv));
     let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
     
-    Ok(try!(decompressor.read_to_end().map_err(|mut e| {
-        e.detail = Some(format!("Failed decompression of file {}. Bytes: {:?}", path.display(), decrypted_bytes));
-
-        e
-    })))
+    Ok(try!(decompressor.read_to_end()))
 }
 
 fn block_output_path(base_path: &Path, hash: &str) -> Path {
