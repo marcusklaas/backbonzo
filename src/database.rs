@@ -3,6 +3,8 @@ extern crate libc;
 
 use super::rustc_serialize::hex::{ToHex, FromHex};
 use super::iter_reduce::{Reduce, IteratorReduce};
+use super::time::get_time;
+
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use self::rusqlite::types::{FromSql, ToSql};
 use self::rusqlite::ffi::sqlite3_stmt;
@@ -231,8 +233,10 @@ impl Database {
         ).map(|_|())
     }
 
-    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> BonzoResult<()> {    
-        Ok(try!(self.persist_alias(directory, None, filename, try!(get_filesystem_time()))))
+    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> BonzoResult<()> {
+        let timestamp = 1000 * get_time().sec as u64;
+         
+        Ok(try!(self.persist_alias(directory, None, filename, timestamp)))
     }
 
     pub fn persist_block(&self, hash: &str, iv: &[u8; 16]) -> SqliteResult<u32> {
@@ -379,16 +383,11 @@ impl Database {
     }
 }
 
-/* FIXME: we can probably use the time crate for this */
-fn get_filesystem_time() -> BonzoResult<u64> {
-    let temp_directory = try!(TempDir::new("bbtime"));
-
-    Ok(try!(temp_directory.path().stat()).modified)
-}
-
 #[cfg(test)]
 mod test {
     use std::io::TempDir;
+    use super::super::time::get_time;
+    use std::io::fs::PathExtensions;
     use Directory;
 
     #[test]
@@ -419,5 +418,17 @@ mod test {
         let great_grand_children = db.get_subdirectories(grand_child).unwrap();
 
         assert_eq!(0us, great_grand_children.len());
+    }
+
+    #[test]
+    fn filesystem_time() {
+        let msecs = 1000 * (get_time().sec as u64);
+
+        let temp_directory = TempDir::new("bbtime").unwrap();
+        let stat = temp_directory.path().stat().unwrap();
+        let fs_msecs: u64 = stat.modified;
+
+        assert!(msecs + 10000 > fs_msecs);
+        assert!(msecs - 10000 < fs_msecs);
     }
 }
