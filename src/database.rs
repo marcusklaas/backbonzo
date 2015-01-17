@@ -12,7 +12,6 @@ use self::libc::c_int;
 
 use {BonzoResult, BonzoError, Directory};
 
-use std::io::TempDir;
 use std::io::fs::{File, PathExtensions};
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -201,11 +200,6 @@ impl Database {
     }
 
     pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
-        // FIXME: should this be here?
-        if let Some(..) = try!(self.file_from_hash(hash)) {
-            return Ok(());
-        }
-        
         let transaction = try!(self.connection.transaction());
 
         try!(self.connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));

@@ -135,10 +135,8 @@ impl BackupManager {
                     let byte_slice = block.bytes.as_slice();
 
                     // make sure block has not already been persisted
-                    // TODO: can we refactor this bit?
                     if let Some(id) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
                         id_queue.push_back(id);
-                        
                         continue;
                     }
                     
@@ -159,13 +157,16 @@ impl BackupManager {
 
                     assert!(id_queue.len() == 0);
 
-                    try!(self.database.persist_file(
-                        file.directory,
-                        file.filename.as_slice(),
-                        file.hash.as_slice(),
-                        file.last_modified,
-                        real_id_list.as_slice()
-                    ));
+                    // only persist file to database if it's not already there
+                    if let None = try!(self.database.file_from_hash(file.hash.as_slice())) {
+                        try!(self.database.persist_file(
+                            file.directory,
+                            file.filename.as_slice(),
+                            file.hash.as_slice(),
+                            file.last_modified,
+                            real_id_list.as_slice()
+                        ));
+                    }
 
                     summary.add_file();
                 }
