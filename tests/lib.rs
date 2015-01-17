@@ -7,7 +7,6 @@ use backbonzo::BonzoError;
 use std::io::TempDir;
 use std::io::fs::{File, PathExtensions, mkdir_recursive};
 use std::time::duration::Duration;
-// use std::rand::{Rng, OsRng};
 
 #[test]
 fn init() {
