@@ -158,10 +158,10 @@ impl BackupManager {
                     assert!(id_queue.len() == 0);
 
                     // only persist file to database if it's not already there
-                    if let opt@Some(file_id) = try!(self.database.file_from_hash(file.hash.as_slice())) {
+                    if let file_id@Some(..) = try!(self.database.file_from_hash(file.hash.as_slice())) {
                         try!(self.database.persist_alias(
                             file.directory,
-                            opt,
+                            file_id,
                             file.filename.as_slice(),
                             file.last_modified
                         ));
