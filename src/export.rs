@@ -7,11 +7,12 @@ use std::thread::Thread;
 use bzip2::CompressionLevel;
 use bzip2::reader::BzCompressor;
 
+use {Directory, BonzoResult, BonzoError};
 use super::database::Database;
 use super::crypto;
 use super::file_chunks::Chunks;
-use {Directory, BonzoResult, BonzoError};
 use super::spsc::{SingleReceiver, SingleSender, single_channel};
+use super::iter_reduce::{Reduce, IteratorReduce};
 
 // The number of messages that should be buffered for the export thread. A large 
 // buffer will take up lots of memory and make will make the exporter do more
@@ -112,11 +113,12 @@ impl<'sender> ExportBlockSender<'sender> {
             }
         }
 
-        for filename in deleted_filenames.iter() {
-            try!(self.database.persist_null_alias(directory, filename.as_slice()));
-        }
-
-        Ok(())
+        deleted_filenames
+            .iter()
+            .map(|filename| {
+                self.database.persist_null_alias(directory, filename.as_slice())
+            })
+            .reduce()
     }
 
     // Tries to backup file. When the file was already in the database, it does

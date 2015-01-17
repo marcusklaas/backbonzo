@@ -1,6 +1,8 @@
 extern crate rusqlite;
 extern crate libc;
 
+use super::rustc_serialize::hex::{ToHex, FromHex};
+use super::iter_reduce::{Reduce, IteratorReduce};
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use self::rusqlite::types::{FromSql, ToSql};
 use self::rusqlite::ffi::sqlite3_stmt;
@@ -12,7 +14,6 @@ use std::io::TempDir;
 use std::io::fs::{File, PathExtensions};
 use std::collections::HashSet;
 use std::iter::FromIterator;
-use super::rustc_serialize::hex::{ToHex, FromHex};
 
 pub use self::rusqlite::SqliteError;
 
@@ -37,8 +38,6 @@ impl FromSql for Directory {
         })
     }
 }
-
-// TODO: abstractify database error
 
 // An iterator over files in a state determined by the given timestamp. A file
 // is represented by its path and a list of block id's. 
@@ -103,8 +102,6 @@ pub struct Database {
     path: Path
 }
 
-// TODO: can we not make database a trait and let it be implemented using sqlite?
-// also, should we have one monolytic class which contains all queries?
 impl Database {
     fn new(path: Path, flags: SqliteOpenFlags) -> BonzoResult<Database> {
         Ok(Database {
@@ -145,11 +142,10 @@ impl Database {
     }
 
     pub fn create(path: Path) -> BonzoResult<Database> {
-        if path.exists() {
-            return Err(BonzoError::Other(format!("Database file already exists"))); 
+        match path.exists() {
+            true  => Err(BonzoError::Other(format!("Database file already exists"))),
+            false => Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE)
         }
-        
-        Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE)
     }
 
     pub fn to_bytes(self) -> BonzoResult<Vec<u8>> {
@@ -332,7 +328,7 @@ impl Database {
     }
 
     pub fn setup(&self) -> SqliteResult<()> {
-        let queries = [
+        [
             "CREATE TABLE directory (
                 id        INTEGER PRIMARY KEY,
                 parent_id INTEGER,
@@ -376,13 +372,10 @@ impl Database {
                 key          TEXT PRIMARY KEY,
                 value        TEXT
             );"
-        ];
-
-        for query in queries.iter() {
-            try!(self.connection.execute(*query, &[]));
-        }
-
-        Ok(())
+        ].iter()
+         .map(|&query| self.connection.execute(query, &[]))
+         .reduce()
+         .map(|_| ())
     }
 }
 
@@ -426,9 +419,5 @@ mod test {
         let great_grand_children = db.get_subdirectories(grand_child).unwrap();
 
         assert_eq!(0us, great_grand_children.len());
-    }
-
-    #[test]
-    fn block_iv_storage() {
     }
 }

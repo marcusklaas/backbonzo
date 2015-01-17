@@ -7,6 +7,7 @@ extern crate bzip2;
 extern crate glob;
 extern crate "crypto" as rust_crypto;
 extern crate spsc;
+extern crate "iter-reduce" as iter_reduce;
 
 #[cfg(test)]
 extern crate regex;
@@ -22,6 +23,7 @@ use std::fmt;
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use rust_crypto::symmetriccipher::SymmetricCipherError;
+use iter_reduce::{Reduce, IteratorReduce};
 
 use export::{process_block, FileInstruction};
 use database::{Database, SqliteError};
@@ -149,11 +151,9 @@ impl BackupManager {
                     summary.add_block(byte_slice, block.source_byte_count);
                 },
                 FileInstruction::Complete(file) => {
-                    let real_id_list = try!(file.block_id_list.iter()
-                        .map(|&id| match id {
-                            ok@Some(..) => ok,
-                            None        => id_queue.pop_front()
-                        })
+                    let real_id_list = try!(file.block_id_list
+                        .iter()
+                        .map(|&id| id.or_else(|| id_queue.pop_front()))
                         .collect::<Option<Vec<u32>>>()
                         .ok_or(BonzoError::Other(format!("Block buffer is empty"))));
 
@@ -183,21 +183,19 @@ impl BackupManager {
     pub fn restore(&self, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
         let pattern = Pattern::new(filter.as_slice());
         let mut summary = RestorationSummary::new();
-        
-        let aliases = try!(database::Aliases::new(
+
+        try!(database::Aliases::new(
             &self.database,
             self.source_path.clone(),
             Directory::Root,
             timestamp
-        ));
-
-        let mut iter = aliases.filter(|&(ref path, _)| pattern.matches_path(path));
-
-        for (path, block_list) in iter {
-            try!(self.restore_file(&path, block_list.as_slice(), &mut summary));
-        }
-        
-        Ok(summary)      
+        ))
+            .filter(|&(ref path, _)| pattern.matches_path(path))
+            .map(|(ref path, ref block_list)| {
+                self.restore_file(path, block_list.as_slice(), &mut summary)
+            })
+            .reduce()
+            .and_then(move |_| Ok(summary))
     }
 
     // Restores a single file by decrypting and inflating a sequence of blocks
