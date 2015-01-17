@@ -158,7 +158,15 @@ impl BackupManager {
                     assert!(id_queue.len() == 0);
 
                     // only persist file to database if it's not already there
-                    if let None = try!(self.database.file_from_hash(file.hash.as_slice())) {
+                    if let opt@Some(file_id) = try!(self.database.file_from_hash(file.hash.as_slice())) {
+                        try!(self.database.persist_alias(
+                            file.directory,
+                            opt,
+                            file.filename.as_slice(),
+                            file.last_modified
+                        ));
+                    }
+                    else {
                         try!(self.database.persist_file(
                             file.directory,
                             file.filename.as_slice(),
@@ -359,7 +367,7 @@ mod test {
         let mut rng = OsRng::new().ok().unwrap();
         let mut original: [u8; 10000] = [0; 10000];
         
-        for _ in 0..100 {
+        for _ in 0..10 {
             rng.fill_bytes(&mut original);
             let index = rng.gen::<u32>() % 10000;
             let slice = original.slice(0, index as usize);
