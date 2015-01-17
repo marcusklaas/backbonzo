@@ -42,9 +42,9 @@ priority todo list
 - [ ] write some documentation on how to use backbonzo
 - [ ] add more functional tests
 - [ ] save the destination directory on init
-- [ ] use time crate instead of `get_filesystem_time()`
-- [ ] try implement a `reduce` method on `Iterator<type=Result<_,_>>`  
 - [ ] add clean up command
+- [x] use time crate instead of `get_filesystem_time()`
+- [x] try implement a `reduce` method on `Iterator<type=Result<_,_>>`  
 - [x] implement simple logging
 - [x] take parameters
 - [x] implement partial restoration
