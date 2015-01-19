@@ -12,9 +12,12 @@ docopt = "*"
 time = "*"
 glob = "*"
 rustc-serialize = "*"
-rusqlite = "*"
 regex = "*" # for tests only -- shouldnt be linked in otherwise
 regex_macros = "*"
+
+[dependencies.rusqlite]
+git = "https://github.com/marcusklaas/rusqlite"
+rev = "954a99d64bd7e0f7ebcdc9958c1a58369362600a"
 
 [dependencies.rust-crypto]
 git = "https://github.com/dagenix/rust-crypto"

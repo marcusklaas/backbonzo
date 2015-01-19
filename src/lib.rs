@@ -149,7 +149,7 @@ impl BackupManager {
                     summary.add_block(byte_slice, block.source_byte_count);
                 },
                 FileInstruction::Complete(file) => {
-                    let real_id_list = try!(file.block_id_list
+                    let block_id_list = try!(file.block_id_list
                         .iter()
                         .map(|&id| id.or_else(|| id_queue.pop_front()))
                         .collect::<Option<Vec<u32>>>()
@@ -172,7 +172,7 @@ impl BackupManager {
                             file.filename.as_slice(),
                             file.hash.as_slice(),
                             file.last_modified,
-                            real_id_list.as_slice()
+                            block_id_list.as_slice()
                         ));
                     }
 
