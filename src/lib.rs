@@ -16,7 +16,6 @@ use std::io::{IoError, IoResult, TempDir, BufReader};
 use std::io::fs::{unlink, copy, File, mkdir_recursive};
 use std::error::FromError;
 use std::path::Path;
-use std::collections::RingBuf;
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -25,7 +24,7 @@ use glob::Pattern;
 use rust_crypto::symmetriccipher::SymmetricCipherError;
 use iter_reduce::{Reduce, IteratorReduce};
 
-use export::{process_block, FileInstruction};
+use export::{process_block, FileInstruction, BlockReference};
 use database::{Database, SqliteError};
 use summary::{RestorationSummary, BackupSummary};
 
@@ -123,7 +122,6 @@ impl BackupManager {
             self.source_path.clone()
         );
         
-        let mut id_queue: RingBuf<u32> = RingBuf::new();
         let mut summary = BackupSummary::new();
 
         for msg in channel_receiver.iter() {
@@ -131,31 +129,32 @@ impl BackupManager {
                 FileInstruction::Done => break,
                 FileInstruction::Error(e) => return Err(e),
                 FileInstruction::NewBlock(block) => {
-                    let path = block_output_path(&self.backup_path, block.hash.as_slice());
-                    let byte_slice = block.bytes.as_slice();
-
                     // make sure block has not already been persisted
-                    if let Some(id) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
-                        id_queue.push_back(id);
+                    if let Some(..) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
                         continue;
                     }
                     
+                    let path = block_output_path(&self.backup_path, block.hash.as_slice());
+                    let byte_slice = block.bytes.as_slice();
+
                     try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
                         .and(write_to_disk(&path, byte_slice)));
         
-                    try!(self.database.persist_block(block.hash.as_slice(), &*block.iv)
-                        .map(|id| id_queue.push_back(id)));
+                    try!(self.database.persist_block(block.hash.as_slice(), &*block.iv));
 
                     summary.add_block(byte_slice, block.source_byte_count);
                 },
                 FileInstruction::Complete(file) => {
-                    let block_id_list = try!(file.block_id_list
+                    let block_id_list = try!(file.block_reference_list
                         .iter()
-                        .map(|&id| id.or_else(|| id_queue.pop_front()))
-                        .collect::<Option<Vec<u32>>>()
-                        .ok_or(BonzoError::Other(format!("Block buffer is empty"))));
-
-                    assert!(id_queue.len() == 0);
+                        .map(|reference| match *reference {
+                            BlockReference::ById(id)         => Ok(id),
+                            BlockReference::ByHash(ref hash) => {
+                                let id_option = try!(self.database.block_id_from_hash(hash.as_slice()));
+                                id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {}", hash)))
+                            }
+                        })
+                        .collect::<BonzoResult<Vec<u32>>>());
 
                     // only persist file to database if it's not already there
                     if let file_id@Some(..) = try!(self.database.file_from_hash(file.hash.as_slice())) {
