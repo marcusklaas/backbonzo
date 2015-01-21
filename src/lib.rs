@@ -23,6 +23,7 @@ use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use rust_crypto::symmetriccipher::SymmetricCipherError;
 use iter_reduce::{Reduce, IteratorReduce};
+use time::get_time;
 
 use export::{process_block, FileInstruction, BlockReference};
 use database::{Database, SqliteError};
@@ -162,7 +163,7 @@ impl BackupManager {
                             file.directory,
                             file_id,
                             file.filename.as_slice(),
-                            file.last_modified
+                            Some(file.last_modified)
                         ));
                     }
                     else {
@@ -286,6 +287,12 @@ pub fn restore(source_path: Path, backup_path: Path, password: &str, timestamp: 
     let manager = try!(BackupManager::create(decrypted_index_path, source_path, backup_path, password, key));
     
     manager.restore(timestamp, filter)
+}
+
+pub fn epoch_milliseconds() -> u64 {
+    let stamp = get_time();
+    
+    stamp.nsec as u64 / 1000 / 1000 + stamp.sec as u64 * 1000
 }
 
 fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8; 32]) -> BonzoResult<Path> {

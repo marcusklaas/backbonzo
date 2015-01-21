@@ -9,7 +9,7 @@ extern crate time;
 use docopt::Docopt;
 use std::time::duration::Duration;
 use std::fmt::Show;
-use backbonzo::{init, backup, restore, BonzoResult};
+use backbonzo::{init, backup, restore, epoch_milliseconds, BonzoResult};
 
 static USAGE: &'static str = "
 backbonzo
@@ -63,7 +63,7 @@ fn main() {
         secs => Duration::seconds(secs as i64)
     };
     let timestamp = match args.flag_timestamp {
-        0 => 1000 * time::get_time().sec as u64,
+        0 => epoch_milliseconds(),
         v => v
     };
     let password = args.flag_key.as_slice();
