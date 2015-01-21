@@ -139,7 +139,7 @@ impl<'sender> ExportBlockSender<'sender> {
         let hash = try!(crypto::hash_file(path));
 
         if let Some(file_id) = try!(self.database.file_from_hash(hash.as_slice())) {
-            return Ok(try!(self.database.persist_alias(directory, Some(file_id), filename.as_slice(), last_modified)));
+            return Ok(try!(self.database.persist_alias(directory, Some(file_id), filename.as_slice(), Some(last_modified))));
         }
         
         let mut chunks = try!(Chunks::from_path(path, self.block_size));

@@ -5,10 +5,9 @@ extern crate time;
 
 use backbonzo::BonzoError;
 use std::io::{FileAccess, FileMode, TempDir};
-use std::io::fs::{File, PathExtensions, mkdir_recursive, rename, stat, unlink};
+use std::io::fs::{File, PathExtensions, mkdir_recursive, rename, unlink};
 use std::time::duration::Duration;
-
-
+use time::get_time;
 
 #[test]
 fn init() {
@@ -110,7 +109,7 @@ fn backup_and_restore() {
 
     assert!(backup_result.is_ok());
 
-    let timestamp = 1000 * time::get_time().sec as u64;
+    let timestamp = epoch_milliseconds();
     let restore_temp = TempDir::new("restore").unwrap();
     let restore_path = restore_temp.path().clone();
 
@@ -136,6 +135,12 @@ fn backup_and_restore() {
     assert!(restore_path.join("test/welcome.txt").exists());
 
     // TODO: check that bytes are correct!
+}
+
+fn epoch_milliseconds() -> u64 {
+    let stamp = get_time();
+        
+    stamp.nsec as u64 / 1000 / 1000 + stamp.sec as u64 * 1000
 }
 
 #[test]
@@ -166,8 +171,6 @@ fn renames() {
         file.write(first_message).unwrap();
         file.fsync().unwrap();
 
-        first_timestamp = stat(&file_path).unwrap().modified;
-
         let backup_result = backbonzo::backup(
             source_path.clone(),
             destination_path.clone(),
@@ -175,6 +178,8 @@ fn renames() {
             password,
             deadline
         );
+
+        first_timestamp = epoch_milliseconds();
 
         assert!(backup_result.is_ok());
     }
@@ -190,8 +195,6 @@ fn renames() {
         file.write(second_message).unwrap();
         file.fsync().unwrap();
         
-        second_timestamp = stat(&file_path).unwrap().modified;
-
         let backup_result = backbonzo::backup(
             source_path.clone(),
             destination_path.clone(),
@@ -199,6 +202,8 @@ fn renames() {
             password,
             deadline
         );
+
+        second_timestamp = epoch_milliseconds();
 
         assert!(backup_result.is_ok());
     }
@@ -210,8 +215,6 @@ fn renames() {
 
         rename(&second_path, &first_path).unwrap();
         
-        third_timestamp = stat(&first_path).unwrap().modified;
-
         let backup_result = backbonzo::backup(
             source_path.clone(),
             destination_path.clone(),
@@ -219,6 +222,8 @@ fn renames() {
             password,
             deadline
         );
+
+        third_timestamp = epoch_milliseconds();
 
         assert!(backup_result.is_ok());
     }
@@ -249,7 +254,7 @@ fn renames() {
             restore_path.clone(),
             destination_path.clone(),
             password,
-            second_timestamp + 1,
+            second_timestamp,
             String::from_str("**")
         );
 

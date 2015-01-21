@@ -3,7 +3,7 @@ extern crate libc;
 
 use super::rustc_serialize::hex::{ToHex, FromHex};
 use super::iter_reduce::{Reduce, IteratorReduce};
-use super::time::get_time;
+use super::epoch_milliseconds;
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use self::rusqlite::types::{FromSql, ToSql};
@@ -213,24 +213,24 @@ impl Database {
             ));
         }
         
-        try!(self.persist_alias(directory, Some(file_id as u32), filename, last_modified));
+        try!(self.persist_alias(directory, Some(file_id as u32), filename, Some(last_modified)));
 
         transaction.commit()
     }
 
-    pub fn persist_alias(&self, directory: Directory, file_id: Option<u32>, filename: &str, last_modified: u64) -> SqliteResult<()> {
+    pub fn persist_alias(&self, directory: Directory, file_id: Option<u32>, filename: &str, last_modified: Option<u64>) -> SqliteResult<()> {
         let signed_file_id = file_id.map(|unsigned| unsigned as i64);
+        let signed_modified = last_modified.map(|unsigned| unsigned as i64);
+        let timestamp = Some(epoch_milliseconds() as i64);
         
         self.connection.execute(
-            "INSERT INTO alias (directory_id, file_id, name, timestamp) VALUES ($1, $2, $3, $4);",
-            &[&directory, &signed_file_id, &filename, &(last_modified as i64)]
+            "INSERT INTO alias (directory_id, file_id, name, modified, timestamp) VALUES ($1, $2, $3, $4, $5);",
+            &[&directory, &signed_file_id, &filename, &signed_modified, &timestamp]
         ).map(|_|())
     }
 
-    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> BonzoResult<()> {
-        let timestamp = 1000 * get_time().sec as u64;
-         
-        Ok(try!(self.persist_alias(directory, None, filename, timestamp)))
+    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> BonzoResult<()> {         
+        Ok(try!(self.persist_alias(directory, None, filename, None)))
     }
 
     pub fn persist_block(&self, hash: &str, iv: &[u8; 16]) -> SqliteResult<u32> {
@@ -250,12 +250,12 @@ impl Database {
         )
     }
 
-    pub fn alias_known(&self, directory: Directory, filename: &str, timestamp: u64) -> SqliteResult<bool> {
+    pub fn alias_known(&self, directory: Directory, filename: &str, modified: u64) -> SqliteResult<bool> {
         self.connection.query_row_safe(
             "SELECT COUNT(alias.id) FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND name = $2) a ON alias.id = a.max_id
-            WHERE timestamp >= $3 AND file_id IS NOT NULL;",
-            &[&directory, &filename, &(timestamp as i64)],
+            WHERE modified >= $3 AND file_id IS NOT NULL;",
+            &[&directory, &filename, &(modified as i64)],
             |row| row.get::<i64>(0) > 0
         )
     }
@@ -346,6 +346,7 @@ impl Database {
                 directory_id INTEGER NOT NULL,
                 file_id      INTEGER,
                 name         TEXT NOT NULL,
+                modified     INTEGER,
                 timestamp    INTEGER,
                 FOREIGN KEY(directory_id) REFERENCES directory(id),
                 FOREIGN KEY(file_id) REFERENCES file(id)
@@ -380,8 +381,6 @@ impl Database {
 #[cfg(test)]
 mod test {
     use std::io::TempDir;
-    use super::super::time::get_time;
-    use std::io::fs::PathExtensions;
     use Directory;
 
     #[test]
@@ -412,17 +411,5 @@ mod test {
         let great_grand_children = db.get_subdirectories(grand_child).unwrap();
 
         assert_eq!(0us, great_grand_children.len());
-    }
-
-    #[test]
-    fn filesystem_time() {
-        let msecs = 1000 * (get_time().sec as u64);
-
-        let temp_directory = TempDir::new("bbtime").unwrap();
-        let stat = temp_directory.path().stat().unwrap();
-        let fs_msecs: u64 = stat.modified;
-
-        assert!(msecs + 10000 > fs_msecs);
-        assert!(msecs - 10000 < fs_msecs);
     }
 }
