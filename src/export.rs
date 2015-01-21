@@ -47,7 +47,6 @@ pub enum BlockReference {
 
 // This is sent *after* all the blocks of a file have been transferred. It is
 // the receiver's responsibility to persist the file to the index.
-// the receiver's responsibility to persist the file to the index.
 #[derive(Show)]
 struct FileComplete {
     pub filename: String,

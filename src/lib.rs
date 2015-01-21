@@ -157,7 +157,7 @@ impl BackupManager {
                         .collect::<BonzoResult<Vec<u32>>>());
 
                     // only persist file to database if it's not already there
-                    if let file_id@Some(..) = try!(self.database.file_from_hash(file.hash.as_slice())) {rt 
+                    if let file_id@Some(..) = try!(self.database.file_from_hash(file.hash.as_slice())) {
                         try!(self.database.persist_alias(
                             file.directory,
                             file_id,
