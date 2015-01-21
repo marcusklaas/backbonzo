@@ -39,18 +39,21 @@ struct FileBlock {
     pub source_byte_count: u64
 }
 
+#[derive(Show)]
+pub enum BlockReference {
+    ById(u32),
+    ByHash(String)
+}
+
 // This is sent *after* all the blocks of a file have been transferred. It is
-// the receiver's responsibility to persist the file to the index. The block
-// id list is encoded as a vector of Options. Known blocks are represented by
-// Some(id), and new blocks are represented by None as we don't known the id
-// before they are persisted to the index
+// the receiver's responsibility to persist the file to the index.
 #[derive(Show)]
 struct FileComplete {
     pub filename: String,
     pub hash: String,
     pub last_modified: u64,
     pub directory: Directory,
-    pub block_id_list: Vec<Option<u32>>
+    pub block_reference_list: Vec<BlockReference>
 }
 
 // Manager which walks the file system and prepares files for backup. This
@@ -139,10 +142,10 @@ impl<'sender> ExportBlockSender<'sender> {
         }
         
         let mut chunks = try!(Chunks::from_path(path, self.block_size));
-        let mut block_id_list = Vec::new();
+        let mut block_reference_list = Vec::new();
         
         while let Some(slice) = chunks.next() {
-            block_id_list.push(try!(self.export_block(slice)));
+            block_reference_list.push(try!(self.export_block(slice)));
         }
         
         try!(self.sender.send(FileInstruction::Complete(FileComplete {
@@ -150,7 +153,7 @@ impl<'sender> ExportBlockSender<'sender> {
             hash: hash,
             last_modified: last_modified,
             directory: directory,
-            block_id_list: block_id_list
+            block_reference_list: block_reference_list
         })).map_err(|_| BonzoError::Other(format!("Failed sending file"))));
 
         Ok(())
@@ -159,11 +162,11 @@ impl<'sender> ExportBlockSender<'sender> {
     // Returns the id of the block when its hash is already in the database.
     // Otherwise, it compresses and encrypts a block and sends the result on
     // the channel to be processed.
-    pub fn export_block(&mut self, block: &[u8]) -> BonzoResult<Option<u32>> {
+    pub fn export_block(&mut self, block: &[u8]) -> BonzoResult<BlockReference> {
         let hash = crypto::hash_block(block);
 
         if let Some(id) = try!(self.database.block_id_from_hash(hash.as_slice())) {
-            return Ok(Some(id))
+            return Ok(BlockReference::ById(id))
         }
 
         let mut iv = Box::new([0u8; 16]);
@@ -174,11 +177,11 @@ impl<'sender> ExportBlockSender<'sender> {
         try!(self.sender.send(FileInstruction::NewBlock(FileBlock {
             bytes: processed_bytes,
             iv: iv,
-            hash: hash,
+            hash: hash.clone(),
             source_byte_count: block.len() as u64
         })).map_err(|_| BonzoError::Other(format!("Failed sending block"))));
 
-        Ok(None)
+        Ok(BlockReference::ByHash(hash))
     }
 }
 
