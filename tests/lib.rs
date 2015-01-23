@@ -133,8 +133,6 @@ fn backup_and_restore() {
 
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
     assert!(restore_path.join("test/welcome.txt").exists());
-
-    // TODO: check that bytes are correct!
 }
 
 fn epoch_milliseconds() -> u64 {
@@ -156,16 +154,14 @@ fn renames() {
 
     let first_file_name = "first";
     let first_message   = "first message. ".as_bytes();
-    let mut first_timestamp = 0; // milliseconds since epoch; will be set later
 
     let second_file_name = "second";
     let second_message   = "second".as_bytes();
-    
-    let mut second_timestamp = 0;
-    let mut third_timestamp = 0;
+
+    let mixed_message = "secondmessage. ".as_bytes();
     
     // create 1 file in source map
-    {
+    let first_timestamp = {
         let file_path = source_path.join(first_file_name);
         let mut file = File::create(&file_path).unwrap();
         file.write(first_message).unwrap();
@@ -179,13 +175,13 @@ fn renames() {
             deadline
         );
 
-        first_timestamp = epoch_milliseconds();
-
         assert!(backup_result.is_ok());
-    }
+
+        epoch_milliseconds()
+    };
 
     // rename file, update modified date and backup again
-    {
+    let second_timestamp = {
         let prev_path = source_path.join(first_file_name);
         let file_path = source_path.join(second_file_name);
 
@@ -203,13 +199,13 @@ fn renames() {
             deadline
         );
 
-        second_timestamp = epoch_milliseconds();
-
         assert!(backup_result.is_ok());
-    }
+
+        epoch_milliseconds()
+    };
 
     // rename file to first and update timestamp
-    {
+    let third_timestamp = {
         let first_path = source_path.join(first_file_name);
         let second_path = source_path.join(second_file_name);
 
@@ -223,10 +219,10 @@ fn renames() {
             deadline
         );
 
-        third_timestamp = epoch_milliseconds();
-
         assert!(backup_result.is_ok());
-    }
+
+        epoch_milliseconds()
+    };
 
     // delete file
     {
@@ -254,7 +250,7 @@ fn renames() {
             restore_path.clone(),
             destination_path.clone(),
             password,
-            second_timestamp,
+            second_timestamp + 1,
             String::from_str("**")
         );
 
@@ -266,6 +262,107 @@ fn renames() {
         assert!(second_path.exists());
         assert!(! first_path.exists());
 
-        // TODO: check bytes
+        let mut file = File::open_mode(&second_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
+        let contents = file.read_to_end().unwrap();
+
+        assert_eq!(mixed_message, contents.as_slice());
+    }
+
+    // restore to third state
+    {
+        let restore_temp = TempDir::new("rename-store").unwrap();
+        let restore_path = restore_temp.path().clone();
+
+        let restore_result = backbonzo::restore(
+            restore_path.clone(),
+            destination_path.clone(),
+            password,
+            third_timestamp + 1,
+            String::from_str("**")
+        );
+
+        assert!(restore_result.is_ok());
+
+        let first_path = restore_path.join(first_file_name);
+        let second_path = restore_path.join(second_file_name);
+
+        assert!( ! second_path.exists());
+        assert!(first_path.exists());
+
+        let mut file = File::open_mode(&first_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
+        let contents = file.read_to_end().unwrap();
+
+        assert_eq!(mixed_message, contents.as_slice());
+    }
+
+    // restore to last state
+    {
+        let restore_temp = TempDir::new("rename-store").unwrap();
+        let restore_path = restore_temp.path().clone();
+
+        let restore_result = backbonzo::restore(
+            restore_path.clone(),
+            destination_path.clone(),
+            password,
+            epoch_milliseconds(),
+            String::from_str("**")
+        );
+
+        assert!(restore_result.is_ok());
+
+        let first_path = restore_path.join(first_file_name);
+        let second_path = restore_path.join(second_file_name);
+
+        assert!(! second_path.exists());
+        assert!(! first_path.exists());
+    }
+
+    // restore to first state
+    {
+        let restore_temp = TempDir::new("rename-store").unwrap();
+        let restore_path = restore_temp.path().clone();
+
+        let restore_result = backbonzo::restore(
+            restore_path.clone(),
+            destination_path.clone(),
+            password,
+            first_timestamp + 1,
+            String::from_str("**")
+        );
+
+        assert!(restore_result.is_ok());
+
+        let first_path = restore_path.join(first_file_name);
+        let second_path = restore_path.join(second_file_name);
+
+        assert!(! second_path.exists());
+        assert!(first_path.exists());
+
+        let mut file = File::open_mode(&first_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
+        let contents = file.read_to_end().unwrap();
+
+        assert_eq!(first_message, contents.as_slice());
+    }
+
+    // restore to initial state
+    {
+        let restore_temp = TempDir::new("rename-store").unwrap();
+        let restore_path = restore_temp.path().clone();
+
+        let restore_result = backbonzo::restore(
+            restore_path.clone(),
+            destination_path.clone(),
+            password,
+            5000,
+            String::from_str("**")
+        );
+
+        assert!(restore_result.is_ok());
+
+        let first_path = restore_path.join(first_file_name);
+        let second_path = restore_path.join(second_file_name);
+
+        assert!(! second_path.exists());
+        assert!(! first_path.exists());
     }
 }
