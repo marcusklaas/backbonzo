@@ -70,7 +70,7 @@ fn main() {
 
     match args.arg_OPERATION {
         Operation::Init    => {
-            let result = init(source_path, password);
+            let result = init(source_path, backup_path, password);
             handle_result(result);
         },
         Operation::Restore =>  {
@@ -78,7 +78,7 @@ fn main() {
             handle_result(result);
         },
         Operation::Backup  =>  {
-            let result = backup(source_path, backup_path, block_bytes, password, deadline);
+            let result = backup(source_path, block_bytes, password, deadline);
             handle_result(result);
         }
     }
