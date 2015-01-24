@@ -122,6 +122,12 @@ impl fmt::Debug for BackupSummary {
     }
 }
 
+impl fmt::Display for BackupSummary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt(f)
+    }
+}
+
 #[cfg(test)]
 mod test {
     extern crate regex;

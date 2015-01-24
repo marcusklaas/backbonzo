@@ -75,6 +75,12 @@ impl fmt::Debug for BonzoError {
     }
 }
 
+impl fmt::Display for BonzoError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt(f)
+    }
+}
+
 pub type BonzoResult<T> = Result<T, BonzoError>;
 
 #[derive(Copy, Eq, PartialEq, Show)]
@@ -399,7 +405,7 @@ mod test {
         for _ in 0..10 {
             rng.fill_bytes(&mut original);
             let index = rng.gen::<u32>() % 10000;
-            let slice = original.slice(0, index as usize);
+            let slice = &original[0..index as usize];
 
             let mut compressor = BzCompressor::new(BufReader::new(slice), CompressionLevel::Smallest);
             let compressed_bytes = compressor.read_to_end().unwrap();

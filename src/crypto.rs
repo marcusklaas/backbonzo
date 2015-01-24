@@ -116,7 +116,7 @@ mod test {
         rng.fill_bytes(&mut iv);
     
         let index = rng.gen::<u32>() % 100000;
-        let slice = data.slice(0, index as usize);
+        let slice = &data[0..index as usize];
         let encrypted_data = super::encrypt_block(slice, &key, &iv).ok().unwrap();
         let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key, &iv).ok().unwrap();
 
