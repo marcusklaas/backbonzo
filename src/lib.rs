@@ -18,12 +18,14 @@ use std::error::FromError;
 use std::path::Path;
 use std::cmp::Ordering;
 use std::fmt;
+use std::os::getcwd;
 
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use rust_crypto::symmetriccipher::SymmetricCipherError;
 use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
+use rustc_serialize::hex::{ToHex, FromHex};
 
 use export::{process_block, FileInstruction, BlockReference};
 use database::{Database, SqliteError};
@@ -89,9 +91,25 @@ pub struct BackupManager {
 }
 
 impl BackupManager {
-    pub fn create(database_path: Path, source_path: Path, backup_path: Path, password: &str, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
+    pub fn new(database_path: Path, source_path: Path, password: &str, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
+        let database = try!(Database::from_file(database_path));
+        
+        let backup_path = try!(
+            database.get_key("backup_path")
+            .map_err(|error| BonzoError::Database(error))
+            .and_then(|encoded| {
+                encoded.ok_or(BonzoError::Other(format!("Could not find backup path in database")))
+            })
+            .and_then(|hex| {
+                hex.from_hex().map_err(|_| BonzoError::Other(format!("Could not decode hex")))
+            })
+            .and_then(|byte_vector| {
+                Path::new_opt(byte_vector).ok_or(BonzoError::Other(format!("Could not create path from byte vector")))
+            })
+        );
+        
         let manager = BackupManager {
-            database: try!(Database::from_file(database_path)),
+            database: database,
             source_path: source_path,
             backup_path: backup_path,
             encryption_key: key
@@ -100,16 +118,6 @@ impl BackupManager {
         try!(manager.check_password(password));
 
         Ok(manager)
-    }
-    
-    pub fn new(database_path: Path, source_path: Path, backup_path: Path, password: &str) -> BonzoResult<BackupManager> {
-        BackupManager::create(
-            database_path,
-            source_path,
-            backup_path,
-            password,
-            crypto::derive_key(password)
-        )
     }
 
     // Update the state of the backup. Starts a walker thread and listens
@@ -259,7 +267,7 @@ impl BackupManager {
     }
 }
 
-pub fn init(source_path: Path, password: &str) -> BonzoResult<()> {
+pub fn init(source_path: Path, backup_path: Path, password: &str) -> BonzoResult<()> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let database = try!(Database::create(database_path));
     let hash = try!(crypto::hash_password(password));
@@ -267,12 +275,27 @@ pub fn init(source_path: Path, password: &str) -> BonzoResult<()> {
     try!(database.setup());
     try!(database.set_key("password", hash.as_slice()));
 
+    let encoded_backup_path = try!(encode_path(&backup_path));
+    
+    try!(database.set_key("backup_path", encoded_backup_path.as_slice()));
+
     Ok(())
 }
 
-pub fn backup(source_path: Path, backup_path: Path, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
+// Takes a path, turns it into an absolute path if necessary and hex encodes it
+fn encode_path(path: &Path) -> BonzoResult<String> {
+    if path.is_relative() {
+        let absolute = try!(getcwd()).join(path);
+
+        return Ok(absolute.as_vec().to_hex());
+    }
+
+    Ok(path.as_vec().to_hex())
+}
+
+pub fn backup(source_path: Path, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
     let database_path = source_path.join(DATABASE_FILENAME);
-    let mut manager = try!(BackupManager::new(database_path, source_path, backup_path, password));
+    let mut manager = try!(BackupManager::new(database_path, source_path, password, crypto::derive_key(password)));
     let summary = try!(manager.update(block_bytes, deadline));
 
     try!(manager.export_index());
@@ -284,7 +307,7 @@ pub fn restore(source_path: Path, backup_path: Path, password: &str, timestamp: 
     let temp_directory = try!(TempDir::new("bonzo"));
     let key = crypto::derive_key(password);
     let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), &*key));
-    let manager = try!(BackupManager::create(decrypted_index_path, source_path, backup_path, password, key));
+    let manager = try!(BackupManager::new(decrypted_index_path, source_path, password, key));
     
     manager.restore(timestamp, filter)
 }

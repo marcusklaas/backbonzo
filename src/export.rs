@@ -243,7 +243,11 @@ mod test {
         let database_path = temp_dir.path().join("index.db3");
         let key = super::super::crypto::derive_key(password);
 
-        super::super::init(temp_dir.path().clone(), password).unwrap();
+        super::super::init(
+            temp_dir.path().clone(),
+            temp_dir.path().clone(),
+            password
+        ).unwrap();
 
         let receiver = super::start_export_thread(&database_path, key, 10000000, temp_dir.path().clone());
 
