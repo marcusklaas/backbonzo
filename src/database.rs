@@ -274,7 +274,7 @@ impl Database {
             Ok(iv)  => {
                 let mut boxed_iv = Box::new([0u8; 16]);
                 
-                for i in 0..16 {
+                for i in 0..16us {
                     boxed_iv[i] = iv[i];
                 }
                 

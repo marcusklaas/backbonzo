@@ -61,7 +61,7 @@ impl DerefMut for RestorationSummary {
     }
 }
 
-impl fmt::Show for RestorationSummary {
+impl fmt::Debug for RestorationSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seconds_passed = self.duration().num_seconds();
         
@@ -104,7 +104,7 @@ impl BackupSummary {
     }
 }
 
-impl fmt::Show for BackupSummary {
+impl fmt::Debug for BackupSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seconds_passed = self.summary.duration().num_seconds();
         let compression_ratio = (self.summary.bytes as f64) / (self.source_bytes as f64);

@@ -27,7 +27,7 @@ impl<'a> Chunks<'a> {
     
     pub fn next(&'a mut self) -> Option<&'a [u8]> {
         self.file.read(self.buffer.as_mut_slice()).ok().map(move |bytes| {
-            self.buffer.slice(0, bytes)
+            &self.buffer[0..bytes]
         })
     }
 }

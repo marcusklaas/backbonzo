@@ -14,7 +14,10 @@ glob = "*"
 rustc-serialize = "*"
 regex = "*" # for tests only -- shouldnt be linked in otherwise
 regex_macros = "*"
-rusqlite = "*"
+
+[dependencies.rusqlite]
+git = "https://github.com/marcusklaas/rusqlite"
+rev = "f9327f855c83ffdbc4cd818183d80485a6d1a09e"
 
 [dependencies.rust-crypto]
 git = "https://github.com/dagenix/rust-crypto"

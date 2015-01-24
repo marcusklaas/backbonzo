@@ -64,7 +64,7 @@ impl FromError<SqliteError> for BonzoError {
     }
 }
 
-impl fmt::Show for BonzoError {
+impl fmt::Debug for BonzoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BonzoError::Database(ref e) => write!(f, "Database error: {}", e.message),
@@ -198,7 +198,7 @@ impl BackupManager {
     }
 
     pub fn restore(&self, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
-        let pattern = Pattern::new(filter.as_slice());
+        let pattern = try!(Pattern::new(filter.as_slice()).map_err(|_| BonzoError::Other(format!("Invalid glob pattern"))));
         let mut summary = RestorationSummary::new();
 
         try!(database::Aliases::new(
@@ -336,7 +336,7 @@ fn load_processed_block(path: &Path, key: &[u8; 32], iv: &[u8; 16]) -> BonzoResu
 }
 
 fn block_output_path(base_path: &Path, hash: &str) -> Path {
-    base_path.join_many(&[hash.slice(0, 2), hash])
+    base_path.join_many(&[&hash[0..2], hash])
 }
 
 fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
