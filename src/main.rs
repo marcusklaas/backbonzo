@@ -15,26 +15,26 @@ static USAGE: &'static str = "
 backbonzo
 
 Usage:
-  backbonzo OPERATION [options] --key <key>
-  backbonzo (-h | --help)
-
-Operations:
-  init, backup, restore
+  backbonzo init    -k <key> -d <dest>             [options]
+  backbonzo backup  -k <key>                       [options]
+  backbonzo restore -k <key> -d <dest> -s <source> [options]
+  backbonzo --help
   
 Options:
   -s --source=<source>       Source directory [default: ./].
-  -d --destination=<dest>    Backup directory [default: /tmp/backbonzo/].
+  -d --destination=<dest>    Backup directory.
   -k --key=<key>             Encryption key.
-  -b --blocksize=<bs>        Size of blocks in megabytes [default: 1].
+  -b --blocksize=<bs>        Size of blocks in kilobytes [default: 1000].
   -t --timestamp=<mseconds>  State to restore to in milliseconds since epoch [default: 0].
   -T --timeout=<seconds>     Maximum execution time in seconds [default: 0].
   -f --filter=<exp>          Regular expression for paths [default: **].
 ";
 
 #[derive(RustcDecodable, Show)]
-#[allow(non_snake_case)]
 struct Args {
-    pub arg_OPERATION: Operation,
+    pub cmd_init: bool,
+    pub cmd_backup: bool,
+    pub cmd_restore: bool,
     pub flag_destination: String,
     pub flag_source: String,
     pub flag_blocksize: u32,
@@ -57,7 +57,7 @@ fn main() {
                             .unwrap_or_else(|e| e.exit());
     let source_path = Path::new(args.flag_source);
     let backup_path = Path::new(args.flag_destination);
-    let block_bytes = 1000 * 1000 * args.flag_blocksize;
+    let block_bytes = 1000 * args.flag_blocksize;
     let deadline = time::now() + match args.flag_timeout {
         0    => Duration::weeks(52),
         secs => Duration::seconds(secs as i64)
@@ -68,19 +68,15 @@ fn main() {
     };
     let password = args.flag_key.as_slice();
 
-    match args.arg_OPERATION {
-        Operation::Init    => {
-            let result = init(source_path, backup_path, password);
-            handle_result(result);
-        },
-        Operation::Restore =>  {
-            let result = restore(source_path, backup_path, password, timestamp, args.flag_filter);
-            handle_result(result);
-        },
-        Operation::Backup  =>  {
-            let result = backup(source_path, block_bytes, password, deadline);
-            handle_result(result);
-        }
+    if args.cmd_init {
+        let result = init(source_path, backup_path, password);
+        handle_result(result);
+    } else if args.cmd_backup {
+        let result = restore(source_path, backup_path, password, timestamp, args.flag_filter);
+        handle_result(result);
+    } else if args.cmd_restore {
+        let result = backup(source_path, block_bytes, password, deadline);
+        handle_result(result);
     }
 }
 
