@@ -40,8 +40,8 @@ priority todo list
 ------------------
 
 - [ ] write some documentation on how to use backbonzo
-- [ ] add more functional tests
 - [ ] add clean up command
+- [x] add more functional tests
 - [x] save the destination directory on init
 - [x] use time crate instead of `get_filesystem_time()`
 - [x] try implement a `reduce` method on `Iterator<type=Result<_,_>>`  
