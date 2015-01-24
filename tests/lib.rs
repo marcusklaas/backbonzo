@@ -11,14 +11,24 @@ use time::get_time;
 
 #[test]
 fn init() {
-    let dir = TempDir::new("init").unwrap();
+    let source_dir = TempDir::new("init").unwrap();
+    let backup_dir = TempDir::new("init-backup").unwrap();
+    
     let password = "testpassword";
 
-    let result = backbonzo::init(dir.path().clone(), password.clone());
+    let result = backbonzo::init(
+        source_dir.path().clone(),
+        backup_dir.path().clone(),
+        password.clone()
+    );
 
     assert!(result.is_ok());
 
-    let second_result = backbonzo::init(dir.path().clone(), password.clone());
+    let second_result = backbonzo::init(
+        source_dir.path().clone(),
+        backup_dir.path().clone(),
+        password.clone()
+    );
 
     let is_expected = match second_result {
         Err(BonzoError::Other(ref str)) => str.as_slice() == "Database file already exists",
@@ -35,11 +45,16 @@ fn backup_wrong_password() {
     let destination_path = source_path.clone();
     let deadline = time::now();
 
-    assert!(backbonzo::init(source_path.clone(), "testpassword").is_ok());
+    assert!(
+        backbonzo::init(
+            source_path.clone(),
+            destination_path.clone(),
+            "testpassword"
+        ).is_ok()
+    );
 
     let backup_result = backbonzo::backup(
         source_path,
-        destination_path,
         1000000,
         "differentpassword",
         deadline);
@@ -56,12 +71,10 @@ fn backup_wrong_password() {
 fn backup_no_init() {
     let dir = TempDir::new("no-init").unwrap();
     let source_path = dir.path().clone();
-    let destination_path = source_path.clone();
     let deadline = time::now();
 
     let backup_result = backbonzo::backup(
         source_path,
-        destination_path,
         1000000,
         "differentpassword",
         deadline
@@ -97,11 +110,16 @@ fn backup_and_restore() {
         assert!(file.fsync().is_ok());
     }
 
-    assert!(backbonzo::init(source_path.clone(), password.clone()).is_ok());
+    assert!(
+        backbonzo::init(
+            source_path.clone(),
+            destination_path.clone(),
+            password.clone()
+        ).is_ok()
+    );
 
     let backup_result = backbonzo::backup(
         source_path.clone(),
-        destination_path.clone(),
         1000000,
         password,
         deadline
@@ -150,7 +168,13 @@ fn renames() {
     let password = "helloworld";
     let deadline = time::now() + Duration::minutes(10);
 
-    assert!(backbonzo::init(source_path.clone(), password.clone()).is_ok());
+    assert!(
+        backbonzo::init(
+            source_path.clone(),
+            destination_path.clone(),
+            password.clone()
+        ).is_ok()
+    );
 
     let first_file_name = "first";
     let first_message   = "first message. ".as_bytes();
@@ -169,7 +193,6 @@ fn renames() {
 
         let backup_result = backbonzo::backup(
             source_path.clone(),
-            destination_path.clone(),
             1000000,
             password,
             deadline
@@ -193,7 +216,6 @@ fn renames() {
         
         let backup_result = backbonzo::backup(
             source_path.clone(),
-            destination_path.clone(),
             1000000,
             password,
             deadline
@@ -213,7 +235,6 @@ fn renames() {
         
         let backup_result = backbonzo::backup(
             source_path.clone(),
-            destination_path.clone(),
             1000000,
             password,
             deadline
@@ -232,7 +253,6 @@ fn renames() {
 
         let backup_result = backbonzo::backup(
             source_path.clone(),
-            destination_path.clone(),
             1000000,
             password,
             deadline
