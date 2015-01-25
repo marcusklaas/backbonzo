@@ -3,7 +3,6 @@ use super::rust_crypto::digest::Digest;
 use super::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer, BufferResult};
 use super::rust_crypto::blockmodes::PkcsPadding;
 use super::rust_crypto::sha2::Sha256;
-use super::rust_crypto::scrypt::{scrypt_simple, scrypt_check, ScryptParams};
 use super::rust_crypto::pbkdf2::pbkdf2;
 use super::rust_crypto::hmac::Hmac;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
@@ -13,26 +12,14 @@ use std::io::IoResult;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
-// Hashes a string using a strong cryptographic, including parameters
-// and salt in the result
-pub fn hash_password(password: &str) -> IoResult<String> {
-    let params = ScryptParams::new(12, 6, 1);
+// Hashes a string using a strong cryptographic
+pub fn hash_password(password: &str) -> String {
+    let key = derive_key(password);
 
-    scrypt_simple(password, &params)
+    hash_block(&*key)
 }
 
-// Checks if a hash generated with hash_password matches a password
-pub fn check_password(password: &str, hash: &str) -> bool {
-    match scrypt_check(password, hash) {
-        Err(..)  => false,
-        Ok(bool) => bool
-    }
-}
-
-// Turns a string into a 256 bit key that we can use for {en,de}cryption. It is
-// important that we use an algorithm that is not similar to the one to hash
-// the password for storage. One could otherwise use the stored hash to gain
-// information on the key used for {en,de}cryption.
+// Turns a string into a 256 bit key that we can use for {en,de}cryption
 pub fn derive_key(password: &str) -> Box<[u8; 32]> {
     let salt = [0; 16];
     let mut derived_key = Box::new([0u8; 32]);
@@ -182,28 +169,5 @@ mod test {
         let hash = super::hash_block("test".as_bytes());
 
         assert_eq!(expected_hash, hash.as_slice());
-    }
-
-    #[test]
-    fn hash_password() {
-        let pass_a = "password123";
-        let pass_b = "different_pass";
-
-        let first_hash = super::hash_password(pass_a).unwrap();
-        let second_hash = super::hash_password(pass_a).unwrap();
-
-        assert!(first_hash.as_slice() != second_hash.as_slice()); // it is extremely unlikely for the salts to be equal
-
-        let different_hash = super::hash_password(pass_b).unwrap();
-
-        assert!(super::check_password(pass_a, first_hash.as_slice()));
-        assert!(super::check_password(pass_a, second_hash.as_slice()));
-
-        assert!(super::check_password(pass_b, different_hash.as_slice()));
-        
-        assert!( ! super::check_password(pass_b, first_hash.as_slice()));
-        assert!( ! super::check_password(pass_b, second_hash.as_slice()));
-        
-        assert!( ! super::check_password(pass_a, different_hash.as_slice()));
     }
 }

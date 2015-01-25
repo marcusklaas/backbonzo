@@ -52,7 +52,7 @@ pub struct BackupManager {
 }
 
 impl BackupManager {
-    pub fn new(database_path: Path, source_path: Path, password: &str, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
+    pub fn new(database_path: Path, source_path: Path, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
         let database = try!(Database::from_file(database_path));
         
         let backup_path = try!(
@@ -76,8 +76,7 @@ impl BackupManager {
             encryption_key: key
         };
 
-        // TODO: check password by passing key!
-        try!(manager.check_password(password));
+        try!(manager.check_password(&*manager.encryption_key));
 
         Ok(manager)
     }
@@ -210,11 +209,11 @@ impl BackupManager {
 
     // Returns an error when the given password does not match the one saved
     // in the index
-    fn check_password(&self, password: &str) -> BonzoResult<()> {
-        let hash = try!(self.database.get_key("password"));
-        let real_hash = try!(hash.ok_or(BonzoError::from_str("Saved hash is NULL")));
+    fn check_password(&self, key: &[u8; 32]) -> BonzoResult<()> {
+        let hash_opt = try!(self.database.get_key("password"));
+        let hash = try!(hash_opt.ok_or(BonzoError::from_str("Saved hash is NULL")));
 
-        match crypto::check_password(password, real_hash.as_slice()) {
+        match crypto::hash_block(key) == hash {
             true  => Ok(()),
             false => Err(BonzoError::from_str("Password is not the same as in database"))
         }
@@ -238,7 +237,7 @@ impl BackupManager {
 pub fn init(source_path: Path, backup_path: Path, password: &str) -> BonzoResult<()> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let database = try!(Database::create(database_path));
-    let hash = try!(crypto::hash_password(password));
+    let hash = crypto::hash_password(password);
 
     try!(database.setup());
     try!(database.set_key("password", hash.as_slice()));
@@ -263,7 +262,7 @@ fn encode_path(path: &Path) -> IoResult<String> {
 
 pub fn backup(source_path: Path, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
     let database_path = source_path.join(DATABASE_FILENAME);
-    let mut manager = try!(BackupManager::new(database_path, source_path, password, crypto::derive_key(password)));
+    let mut manager = try!(BackupManager::new(database_path, source_path, crypto::derive_key(password)));
     let summary = try!(manager.update(block_bytes, deadline));
 
     try!(manager.export_index());
@@ -275,7 +274,7 @@ pub fn restore(source_path: Path, backup_path: Path, password: &str, timestamp: 
     let temp_directory = try!(TempDir::new("bonzo"));
     let key = crypto::derive_key(password);
     let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), &*key));
-    let manager = try!(BackupManager::new(decrypted_index_path, source_path, password, key));
+    let manager = try!(BackupManager::new(decrypted_index_path, source_path, key));
     
     manager.restore(timestamp, filter)
 }
