@@ -67,13 +67,14 @@ priority todo list
 - [x] check that encryption passwords are consistent
 - [x] handle error juggling by implementing fromError trait for BonzoError
 
-build
------
+install
+-------
 
-* Install rustc, cargo and the sqlite development headers
+* [Install rustc, cargo and the sqlite development headers](http://www.rust-lang.org/install.html)
 * `$ git clone https://github.com/marcusklaas/backbonzo.git`
 * `$ cd backbonzo`
 * `$ cargo build --release`
+* `$ sudo cp target/release/backbonzo /usr/local/bin/backbonzo`
 
 license
 -------
