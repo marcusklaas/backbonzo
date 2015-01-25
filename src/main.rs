@@ -71,10 +71,12 @@ fn main() {
     if args.cmd_init {
         let result = init(source_path, backup_path, password);
         handle_result(result);
-    } else if args.cmd_backup {
+    }
+    else if args.cmd_backup {
         let result = backup(source_path, block_bytes, password, deadline);
         handle_result(result);
-    } else if args.cmd_restore {
+    }
+    else if args.cmd_restore {
         let result = restore(source_path, backup_path, password, timestamp, args.flag_filter);
         handle_result(result);
     }

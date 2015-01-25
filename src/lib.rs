@@ -15,7 +15,6 @@ extern crate regex;
 use std::io::{IoResult, TempDir, BufReader};
 use std::io::fs::{unlink, copy, File, mkdir_recursive};
 use std::path::Path;
-use std::cmp::Ordering;
 use std::os::getcwd;
 
 use bzip2::reader::BzDecompressor;
@@ -24,7 +23,7 @@ use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
 use rustc_serialize::hex::{ToHex, FromHex};
 
-use export::{process_block, FileInstruction, BlockReference};
+use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
 use summary::{RestorationSummary, BackupSummary};
 
@@ -77,6 +76,7 @@ impl BackupManager {
             encryption_key: key
         };
 
+        // TODO: check password by passing key!
         try!(manager.check_password(password));
 
         Ok(manager)
@@ -95,64 +95,12 @@ impl BackupManager {
         
         let mut summary = BackupSummary::new();
 
-        for msg in channel_receiver.iter() {
+        for msg in channel_receiver.iter().take_while(|_| time::now_utc() < deadline) {
             match msg {
-                FileInstruction::Done => break,
-                FileInstruction::Error(e) => return Err(e),
-                FileInstruction::NewBlock(block) => {
-                    // make sure block has not already been persisted
-                    if let Some(..) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
-                        continue;
-                    }
-                    
-                    let path = block_output_path(&self.backup_path, block.hash.as_slice());
-                    let byte_slice = block.bytes.as_slice();
-
-                    try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
-                        .and(write_to_disk(&path, byte_slice)));
-        
-                    try!(self.database.persist_block(block.hash.as_slice(), &*block.iv));
-
-                    summary.add_block(byte_slice, block.source_byte_count);
-                },
-                FileInstruction::Complete(file) => {
-                    let block_id_list = try!(file.block_reference_list
-                        .iter()
-                        .map(|reference| match *reference {
-                            BlockReference::ById(id)         => Ok(id),
-                            BlockReference::ByHash(ref hash) => {
-                                let id_option = try!(self.database.block_id_from_hash(hash.as_slice()));
-                                id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {}", hash)))
-                            }
-                        })
-                        .collect::<BonzoResult<Vec<u32>>>());
-
-                    // only persist file to database if it's not already there
-                    if let file_id@Some(..) = try!(self.database.file_from_hash(file.hash.as_slice())) {
-                        try!(self.database.persist_alias(
-                            file.directory,
-                            file_id,
-                            file.filename.as_slice(),
-                            Some(file.last_modified)
-                        ));
-                    }
-                    else {
-                        try!(self.database.persist_file(
-                            file.directory,
-                            file.filename.as_slice(),
-                            file.hash.as_slice(),
-                            file.last_modified,
-                            block_id_list.as_slice()
-                        ));
-                    }
-
-                    summary.add_file();
-                }
-            }
-
-            if deadline.cmp(&time::now_utc()) != Ordering::Greater {
-                summary.timeout = true;                
-                break;
+                FileInstruction::Done                => break,
+                FileInstruction::Error(e)            => return Err(e),
+                FileInstruction::NewBlock(ref block) => try!(self.handle_new_block(block, &mut summary)),
+                FileInstruction::Complete(ref file)  => try!(self.handle_new_file (file,  &mut summary))
             }
         }
 
@@ -196,6 +144,64 @@ impl BackupManager {
         }
 
         try!(file.fsync());
+
+        summary.add_file();
+
+        Ok(())
+    }
+
+    fn handle_new_block(&self, block: &FileBlock, summary: &mut BackupSummary) -> BonzoResult<()> {
+        // make sure block has not already been persisted
+        if let Some(..) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
+            return Ok(());
+        }
+        
+        let path = block_output_path(&self.backup_path, block.hash.as_slice());
+        let byte_slice = block.bytes.as_slice();
+
+        try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
+            .and(write_to_disk(&path, byte_slice)));
+
+        try!(self.database.persist_block(block.hash.as_slice(), &*block.iv));
+
+        summary.add_block(byte_slice, block.source_byte_count);
+
+        Ok(())
+    }
+
+    fn handle_new_file(&self, file: &FileComplete, summary: &mut BackupSummary) -> BonzoResult<()> {
+        // if file hash was already known, only add a new alias
+        if let file_id@Some(..) = try!(self.database.file_from_hash(file.hash.as_slice())) {
+            try!(self.database.persist_alias(
+                file.directory,
+                file_id,
+                file.filename.as_slice(),
+                Some(file.last_modified)
+            ));
+
+            return Ok(summary.add_file());
+        }
+        
+        let block_id_list = try!(
+            file.block_reference_list
+            .iter()
+            .map(|reference| match *reference {
+                BlockReference::ById(id)         => Ok(id),
+                BlockReference::ByHash(ref hash) => {
+                    let id_option = try!(self.database.block_id_from_hash(hash.as_slice()));
+                    id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {}", hash)))
+                }
+            })
+            .collect::<BonzoResult<Vec<u32>>>()
+        );
+        
+        try!(self.database.persist_file(
+            file.directory,
+            file.filename.as_slice(),
+            file.hash.as_slice(),
+            file.last_modified,
+            block_id_list.as_slice()
+        ));
 
         summary.add_file();
 

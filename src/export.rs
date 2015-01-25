@@ -33,7 +33,7 @@ pub enum FileInstruction {
 // Sent after the encryption and compression of a block is completed. It is the
 // receiver's resposibility to write the bytes to disk and persist the details
 // to the index
-struct FileBlock {
+pub struct FileBlock {
     pub bytes: Vec<u8>,
     pub iv: Box<[u8; 16]>,
     pub hash: String,
@@ -49,7 +49,7 @@ pub enum BlockReference {
 // This is sent *after* all the blocks of a file have been transferred. It is
 // the receiver's responsibility to persist the file to the index.
 #[derive(Show)]
-struct FileComplete {
+pub struct FileComplete {
     pub filename: String,
     pub hash: String,
     pub last_modified: u64,
@@ -81,27 +81,11 @@ impl<'sender> ExportBlockSender<'sender> {
         })
     }
 
-    fn read_dir(path: &Path) -> IoResult<Vec<(u64, Path)>> {
-        let mut vec: Vec<(u64, Path)> = try!(
-            readdir(path)
-            .and_then(|list| list.into_iter()
-                .map(|path| path.stat().map(move |stats| {
-                    (stats.modified, path)
-                }))
-                .collect()
-            )
-        );
-
-        vec.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
-
-        Ok(vec)
-    }
-
     // Recursively walks the given directory, processing all files within.
     // Deletes references to deleted files which were previously found from the
     // database. Processes files in descending order of last mutation.
     pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
-        let content_list = try!(ExportBlockSender::read_dir(path));
+        let content_list = try!(read_dir(path));
         let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
         
         for &(last_modified, ref content_path) in content_list.iter() {
@@ -113,21 +97,25 @@ impl<'sender> ExportBlockSender<'sender> {
                 try!(self.export_directory(content_path, child_directory));
             }
             else {
-                try!(content_path
+                try!(
+                    content_path
                     .filename_str()
                     .ok_or(BonzoError::from_str("Could not convert filename to string"))
                     .map(String::from_str)
                     .and_then(|filename| {
                         deleted_filenames.remove(&filename);
                         self.export_file(directory, content_path, filename, last_modified)
-                    }));
+                    })
+                );
             }
         }
 
         deleted_filenames
             .iter()
             .map(|filename| {
-                self.database.persist_null_alias(directory, filename.as_slice()).map_err(|e| BonzoError::Database(e))
+                self.database
+                    .persist_null_alias(directory, filename.as_slice())
+                    .map_err(|e| BonzoError::Database(e))
             })
             .reduce()
     }
@@ -191,6 +179,22 @@ impl<'sender> ExportBlockSender<'sender> {
 
         Ok(BlockReference::ByHash(hash))
     }
+}
+
+fn read_dir(path: &Path) -> IoResult<Vec<(u64, Path)>> {
+    let mut vec: Vec<(u64, Path)> = try!(
+        readdir(path)
+        .and_then(|list| list.into_iter()
+            .map(|path| path.stat().map(move |stats| {
+                (stats.modified, path)
+            }))
+            .collect()
+        )
+    );
+
+    vec.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
+
+    Ok(vec)
 }
 
 pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {

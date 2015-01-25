@@ -81,16 +81,14 @@ impl fmt::Debug for RestorationSummary {
 // Only newly written files and blocks will be included in this summary.
 pub struct BackupSummary {
     summary: Summary,
-    source_bytes: u64,
-    pub timeout: bool
+    source_bytes: u64
 }
 
 impl BackupSummary {
     pub fn new() -> BackupSummary {
         BackupSummary {
             summary: Summary::new(),
-            source_bytes: 0,
-            timeout: false
+            source_bytes: 0
         }            
     }
 
@@ -111,13 +109,12 @@ impl fmt::Debug for BackupSummary {
                 
         write!(
             f,
-            "Backed up {} files, into {} blocks containing {} bytes, in {} seconds. Compression ratio: {}. Timeout: {}",
+            "Backed up {} files, into {} blocks containing {} bytes, in {} seconds. Compression ratio: {}",
             self.summary.files,
             self.summary.blocks,
             self.summary.bytes,
             seconds_passed,
-            compression_ratio,
-            self.timeout
+            compression_ratio
         )
     }
 }
@@ -170,7 +167,7 @@ mod test {
         summary.add_file();
         summary.add_file();
 
-        let re = regex!(r"Backed up 2 files, into 1 blocks containing 10 bytes, in \d+ seconds. Compression ratio: 0.1. Timeout: false");
+        let re = regex!(r"Backed up 2 files, into 1 blocks containing 10 bytes, in \d+ seconds. Compression ratio: 0.1");
 
         let representation = format!("{:?}", summary);
 
