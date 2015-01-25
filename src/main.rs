@@ -15,9 +15,9 @@ static USAGE: &'static str = "
 backbonzo
 
 Usage:
-  backbonzo init    -k <key> -d <dest>             [options]
-  backbonzo backup  -k <key>                       [options]
-  backbonzo restore -k <key> -d <dest> -s <source> [options]
+  backbonzo init    -k <key> -d <dest> [options]
+  backbonzo backup  -k <key>           [options]
+  backbonzo restore -k <key> -d <dest> [options]
   backbonzo --help
   
 Options:
