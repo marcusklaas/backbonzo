@@ -12,76 +12,32 @@ extern crate "iter-reduce" as iter_reduce;
 #[cfg(test)]
 extern crate regex;
 
-use std::io::{IoError, IoResult, TempDir, BufReader};
+use std::io::{IoResult, TempDir, BufReader};
 use std::io::fs::{unlink, copy, File, mkdir_recursive};
-use std::error::FromError;
 use std::path::Path;
 use std::cmp::Ordering;
-use std::fmt;
 use std::os::getcwd;
 
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
-use rust_crypto::symmetriccipher::SymmetricCipherError;
 use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
 use rustc_serialize::hex::{ToHex, FromHex};
 
 use export::{process_block, FileInstruction, BlockReference};
-use database::{Database, SqliteError};
+use database::Database;
 use summary::{RestorationSummary, BackupSummary};
+
+pub use error::{BonzoError, BonzoResult};
 
 mod database;
 mod crypto;
 mod export;
 mod summary;
 mod file_chunks;
+mod error;
 
 static DATABASE_FILENAME: &'static str = "index.db3";
-
-pub enum BonzoError {
-    Database(SqliteError),
-    Io(IoError),
-    Crypto(SymmetricCipherError),
-    Other(String)
-}
-
-impl FromError<IoError> for BonzoError {
-    fn from_error(error: IoError) -> BonzoError {
-        BonzoError::Io(error)
-    }
-}
-
-impl FromError<SymmetricCipherError> for BonzoError {
-    fn from_error(error: SymmetricCipherError) -> BonzoError {
-        BonzoError::Crypto(error)
-    }
-}
-
-impl FromError<SqliteError> for BonzoError {
-    fn from_error(error: SqliteError) -> BonzoError {
-        BonzoError::Database(error)
-    }
-}
-
-impl fmt::Debug for BonzoError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            BonzoError::Database(ref e) => write!(f, "Database error: {}", e.message),
-            BonzoError::Io(ref e)       => write!(f, "IO error: {}, {}", e.desc, e.detail.clone().unwrap_or_default()),
-            BonzoError::Crypto(..)      => write!(f, "Crypto error!"),
-            BonzoError::Other(ref str)  => write!(f, "Error: {}", str)
-        }
-    }
-}
-
-impl fmt::Display for BonzoError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt(f)
-    }
-}
-
-pub type BonzoResult<T> = Result<T, BonzoError>;
 
 #[derive(Copy, Eq, PartialEq, Show)]
 enum Directory {
@@ -104,13 +60,13 @@ impl BackupManager {
             database.get_key("backup_path")
             .map_err(|error| BonzoError::Database(error))
             .and_then(|encoded| {
-                encoded.ok_or(BonzoError::Other(format!("Could not find backup path in database")))
+                encoded.ok_or(BonzoError::from_str("Could not find backup path in database"))
             })
             .and_then(|hex| {
-                hex.from_hex().map_err(|_| BonzoError::Other(format!("Could not decode hex")))
+                hex.from_hex().map_err(|_| BonzoError::from_str("Could not decode hex"))
             })
             .and_then(|byte_vector| {
-                Path::new_opt(byte_vector).ok_or(BonzoError::Other(format!("Could not create path from byte vector")))
+                Path::new_opt(byte_vector).ok_or(BonzoError::from_str("Could not create path from byte vector"))
             })
         );
         
@@ -204,7 +160,7 @@ impl BackupManager {
     }
 
     pub fn restore(&self, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
-        let pattern = try!(Pattern::new(filter.as_slice()).map_err(|_| BonzoError::Other(format!("Invalid glob pattern"))));
+        let pattern = try!(Pattern::new(filter.as_slice()).map_err(|_| BonzoError::from_str("Invalid glob pattern")));
         let mut summary = RestorationSummary::new();
 
         try!(database::Aliases::new(
@@ -250,11 +206,11 @@ impl BackupManager {
     // in the index
     fn check_password(&self, password: &str) -> BonzoResult<()> {
         let hash = try!(self.database.get_key("password"));
-        let real_hash = try!(hash.ok_or(BonzoError::Other(format!("Saved hash is NULL"))));
+        let real_hash = try!(hash.ok_or(BonzoError::from_str("Saved hash is NULL")));
 
         match crypto::check_password(password, real_hash.as_slice()) {
             true  => Ok(()),
-            false => Err(BonzoError::Other(format!("Password is not the same as in database")))
+            false => Err(BonzoError::from_str("Password is not the same as in database"))
         }
     }
 
@@ -289,7 +245,7 @@ pub fn init(source_path: Path, backup_path: Path, password: &str) -> BonzoResult
 }
 
 // Takes a path, turns it into an absolute path if necessary and hex encodes it
-fn encode_path(path: &Path) -> BonzoResult<String> {
+fn encode_path(path: &Path) -> IoResult<String> {
     if path.is_relative() {
         let absolute = try!(getcwd()).join(path);
 

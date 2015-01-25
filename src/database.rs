@@ -1,16 +1,15 @@
 extern crate rusqlite;
 extern crate libc;
 
+use super::{epoch_milliseconds, Directory};
+use super::error::{BonzoResult, BonzoError};
 use super::rustc_serialize::hex::{ToHex, FromHex};
 use super::iter_reduce::{Reduce, IteratorReduce};
-use super::epoch_milliseconds;
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use self::rusqlite::types::{FromSql, ToSql};
 use self::rusqlite::ffi::sqlite3_stmt;
 use self::libc::c_int;
-
-use {BonzoResult, BonzoError, Directory};
 
 use std::io::fs::{File, PathExtensions};
 use std::collections::HashSet;
@@ -108,7 +107,7 @@ impl Database {
         Ok(Database {
             connection: try!(path
                 .as_str()
-                .ok_or(BonzoError::Other(format!("Couldn't convert database path to string")))
+                .ok_or(BonzoError::from_str("Couldn't convert database path to string"))
                 .and_then(|filename|
                     Ok(try!(SqliteConnection::open_with_flags(filename, flags)))
                 )),
@@ -144,7 +143,7 @@ impl Database {
 
     pub fn create(path: Path) -> BonzoResult<Database> {
         match path.exists() {
-            true  => Err(BonzoError::Other(format!("Database file already exists"))),
+            true  => Err(BonzoError::from_str("Database file already exists")),
             false => Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE)
         }
     }
@@ -229,8 +228,8 @@ impl Database {
         ).map(|_|())
     }
 
-    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> BonzoResult<()> {         
-        Ok(try!(self.persist_alias(directory, None, filename, None)))
+    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> SqliteResult<()> {         
+        self.persist_alias(directory, None, filename, None)
     }
 
     pub fn persist_block(&self, hash: &str, iv: &[u8; 16]) -> SqliteResult<u32> {

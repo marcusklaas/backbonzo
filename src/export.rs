@@ -1,4 +1,4 @@
-use std::io::BufReader;
+use std::io::{IoResult, BufReader};
 use std::io::fs::{readdir, PathExtensions};
 use std::path::Path;
 use std::rand::{Rng, OsRng};
@@ -7,7 +7,8 @@ use std::thread::Thread;
 use bzip2::CompressionLevel;
 use bzip2::reader::BzCompressor;
 
-use {Directory, BonzoResult, BonzoError};
+use Directory;
+use super::error::{BonzoResult, BonzoError};
 use super::database::Database;
 use super::crypto;
 use super::file_chunks::Chunks;
@@ -80,26 +81,33 @@ impl<'sender> ExportBlockSender<'sender> {
         })
     }
 
-    // Recursively walks the given directory, processing all files within.
-    // Deletes references to deleted files which were previously found from the
-    // database. Processes files in descending order of last mutation.
-    pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
-        let mut content_list: Vec<(u64, Path)> = try!(readdir(path)
+    fn read_dir(path: &Path) -> IoResult<Vec<(u64, Path)>> {
+        let mut vec: Vec<(u64, Path)> = try!(
+            readdir(path)
             .and_then(|list| list.into_iter()
                 .map(|path| path.stat().map(move |stats| {
                     (stats.modified, path)
                 }))
                 .collect()
-            ));
+            )
+        );
 
-        content_list.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
+        vec.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
 
+        Ok(vec)
+    }
+
+    // Recursively walks the given directory, processing all files within.
+    // Deletes references to deleted files which were previously found from the
+    // database. Processes files in descending order of last mutation.
+    pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
+        let content_list = try!(ExportBlockSender::read_dir(path));
         let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
         
         for &(last_modified, ref content_path) in content_list.iter() {
             if content_path.is_dir() {
-                let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::Other(format!("Could not get relative path"))));
-                let name = try!(relative_path.as_str().ok_or(BonzoError::Other(format!("Cannot express directory name in UTF8"))));
+                let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::from_str("Could not get relative path")));
+                let name = try!(relative_path.as_str().ok_or(BonzoError::from_str("Cannot express directory name in UTF8")));
                 let child_directory = try!(self.database.get_directory(directory, name));
             
                 try!(self.export_directory(content_path, child_directory));
@@ -107,7 +115,7 @@ impl<'sender> ExportBlockSender<'sender> {
             else {
                 try!(content_path
                     .filename_str()
-                    .ok_or(BonzoError::Other(format!("Could not convert filename to string")))
+                    .ok_or(BonzoError::from_str("Could not convert filename to string"))
                     .map(String::from_str)
                     .and_then(|filename| {
                         deleted_filenames.remove(&filename);
@@ -119,7 +127,7 @@ impl<'sender> ExportBlockSender<'sender> {
         deleted_filenames
             .iter()
             .map(|filename| {
-                self.database.persist_null_alias(directory, filename.as_slice())
+                self.database.persist_null_alias(directory, filename.as_slice()).map_err(|e| BonzoError::Database(e))
             })
             .reduce()
     }
@@ -154,7 +162,7 @@ impl<'sender> ExportBlockSender<'sender> {
             last_modified: last_modified,
             directory: directory,
             block_reference_list: block_reference_list
-        })).map_err(|_| BonzoError::Other(format!("Failed sending file"))));
+        })).map_err(|_| BonzoError::from_str("Failed sending file")));
 
         Ok(())
     }
@@ -179,7 +187,7 @@ impl<'sender> ExportBlockSender<'sender> {
             iv: iv,
             hash: hash.clone(),
             source_byte_count: block.len() as u64
-        })).map_err(|_| BonzoError::Other(format!("Failed sending block"))));
+        })).map_err(|_| BonzoError::from_str("Failed sending block")));
 
         Ok(BlockReference::ByHash(hash))
     }
