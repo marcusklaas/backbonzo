@@ -4,8 +4,8 @@ extern crate backbonzo;
 extern crate time;
 
 use backbonzo::BonzoError;
-use std::io::{FileAccess, FileMode, TempDir};
-use std::io::fs::{File, PathExtensions, mkdir_recursive, rename, unlink};
+use std::old_io::{FilePermission, FileAccess, FileMode, TempDir};
+use std::old_io::fs::{File, PathExtensions, mkdir_recursive, rename, unlink};
 use std::time::duration::Duration;
 use time::get_time;
 
@@ -98,7 +98,7 @@ fn backup_and_restore() {
     let password = "testpassword";
     let deadline = time::now() + Duration::minutes(1);
 
-    assert!(mkdir_recursive(&source_path.join("test"), std::io::FilePermission::all()).is_ok());
+    assert!(mkdir_recursive(&source_path.join("test"), FilePermission::all()).is_ok());
 
     let filenames = ["test/welcome.txt", "welco.yolo", "smth_diffrent.jpg"];
     let bytes = "71d6e2f35502c03743f676449c503f487de29988".as_bytes();

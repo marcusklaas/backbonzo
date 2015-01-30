@@ -1,5 +1,5 @@
-use std::io::IoResult;
-use std::io::fs::File;
+use std::old_io::IoResult;
+use std::old_io::fs::File;
 use std::mem::forget;
 
 // Semi-iterator which reads a file one block at a time. Is not a proper
@@ -35,8 +35,8 @@ impl<'a> Chunks<'a> {
 
 #[cfg(test)]
 mod test {
-    use std::io::TempDir;
-    use std::io::fs::File;
+    use std::old_io::TempDir;
+    use std::old_io::File;
     
     #[test]
     fn chunks() {

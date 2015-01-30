@@ -12,8 +12,8 @@ extern crate "iter-reduce" as iter_reduce;
 #[cfg(test)]
 extern crate regex;
 
-use std::io::{IoResult, TempDir, BufReader};
-use std::io::fs::{unlink, copy, File, mkdir_recursive};
+use std::old_io::{IoResult, TempDir, BufReader, FilePermission};
+use std::old_io::fs::{unlink, copy, File, mkdir_recursive};
 use std::path::Path;
 use std::os::getcwd;
 
@@ -127,7 +127,7 @@ impl BackupManager {
     // Restores a single file by decrypting and inflating a sequence of blocks
     // and writing them to the given path in order
     pub fn restore_file(&self, path: &Path, block_list: &[u32], summary: &mut RestorationSummary) -> BonzoResult<()> {
-        try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all()));
+        try!(mkdir_recursive(&path.dir_path(), FilePermission::all()));
         
         let mut file = try!(File::create(path));
 
@@ -158,7 +158,7 @@ impl BackupManager {
         let path = block_output_path(&self.backup_path, block.hash.as_slice());
         let byte_slice = block.bytes.as_slice();
 
-        try!(mkdir_recursive(&path.dir_path(), std::io::FilePermission::all())
+        try!(mkdir_recursive(&path.dir_path(), FilePermission::all())
             .and(write_to_disk(&path, byte_slice)));
 
         try!(self.database.persist_block(block.hash.as_slice(), &*block.iv));
@@ -315,8 +315,8 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
 
 #[cfg(test)]
 mod test {
-    use std::io::{BufReader, TempDir};
-    use std::io::fs::File;
+    use std::old_io::{BufReader, TempDir};
+    use std::old_io::fs::File;
     use std::rand::{Rng, OsRng};
     use super::bzip2::reader::{BzDecompressor, BzCompressor};
     use super::bzip2::CompressionLevel;

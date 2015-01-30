@@ -11,7 +11,7 @@ use self::rusqlite::types::{FromSql, ToSql};
 use self::rusqlite::ffi::sqlite3_stmt;
 use self::libc::c_int;
 
-use std::io::fs::{File, PathExtensions};
+use std::old_io::fs::{File, PathExtensions};
 use std::collections::HashSet;
 use std::iter::FromIterator;
 
@@ -379,7 +379,7 @@ impl Database {
 
 #[cfg(test)]
 mod test {
-    use std::io::TempDir;
+    use std::old_io::TempDir;
     use Directory;
 
     #[test]

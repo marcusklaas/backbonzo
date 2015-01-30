@@ -1,5 +1,5 @@
-use std::io::{IoResult, BufReader};
-use std::io::fs::{readdir, PathExtensions};
+use std::old_io::{IoResult, BufReader};
+use std::old_io::fs::{readdir, PathExtensions};
 use std::path::Path;
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
@@ -234,8 +234,8 @@ pub fn start_export_thread(database_path: &Path, encryption_key: Box<[u8; 32]>, 
 
 #[cfg(test)]
 mod test {
-    use std::io::TempDir;
-    use std::io::Timer;
+    use std::old_io::TempDir;
+    use std::old_io::Timer;
     use std::time::Duration;
     
     #[test]

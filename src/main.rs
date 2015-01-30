@@ -9,6 +9,7 @@ extern crate time;
 use docopt::Docopt;
 use std::time::duration::Duration;
 use std::fmt::Debug;
+use std::old_io::stderr;
 use backbonzo::{init, backup, restore, epoch_milliseconds, BonzoResult};
 
 static USAGE: &'static str = "
@@ -85,10 +86,8 @@ fn main() {
 // Writes the result of the program to stdio in case of success, or stderr when
 // it failed
 fn handle_result<T: Debug>(result: BonzoResult<T>) {
-    let mut stderr = std::io::stderr();
-    
     match result {
         Ok(summary) => println!("{:?}", summary),
-        Err(ref e)  => { let _ = writeln!(&mut stderr, "{:?}", e); }
+        Err(ref e)  => { let _ = writeln!(&mut stderr(), "{:?}", e); }
     }
 }

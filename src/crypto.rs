@@ -8,7 +8,7 @@ use super::rust_crypto::hmac::Hmac;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use super::file_chunks::Chunks;
-use std::io::IoResult;
+use std::old_io::IoResult;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
@@ -88,8 +88,8 @@ pub fn decrypt_block(block: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Result<Vec<
 #[cfg(test)]
 mod test {
     use std::rand::{Rng, OsRng};
-    use std::io::TempDir;
-    use std::io::fs::File;
+    use std::old_io::TempDir;
+    use std::old_io::fs::File;
     
     #[test]
     fn aes_encryption_decryption() {
