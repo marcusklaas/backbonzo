@@ -1,5 +1,8 @@
+#![feature(core)]
+#![feature(io)]
+#![feature(std_misc)]
+#![feature(path)]
 #![cfg(not(test))]
-#![allow(unstable)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate backbonzo;

@@ -49,7 +49,7 @@ impl fmt::Debug for BonzoError {
 
 impl fmt::Display for BonzoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt(f)
+        fmt::Debug::fmt(self, f)
     }
 }
 

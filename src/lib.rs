@@ -1,4 +1,11 @@
-#![allow(unstable)]
+#![feature(collections)]
+#![feature(libc)]
+#![feature(os)]
+#![feature(io)]
+#![feature(std_misc)]
+#![feature(rand)]
+#![feature(core)]
+#![feature(path)]
 #![feature(plugin)]
 
 extern crate "rustc-serialize" as rustc_serialize;
@@ -139,7 +146,7 @@ impl BackupManager {
 
             summary.add_block(byte_slice);
 
-            try!(file.write(byte_slice));
+            try!(file.write_all(byte_slice));
         }
 
         try!(file.fsync());
@@ -309,7 +316,7 @@ fn block_output_path(base_path: &Path, hash: &str) -> Path {
 fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
     let mut file = try!(File::create(path));
 
-    try!(file.write(bytes));
+    try!(file.write_all(bytes));
     file.fsync()
 }
 
@@ -337,7 +344,7 @@ mod test {
         let processed_bytes = super::export::process_block(bytes, &key, &iv).unwrap();
         
         let mut file = File::create(&file_path).unwrap();
-        assert!(file.write(processed_bytes.as_slice()).is_ok());
+        assert!(file.write_all(processed_bytes.as_slice()).is_ok());
         assert!(file.fsync().is_ok());
 
         let retrieved_bytes = super::load_processed_block(&file_path, &key, &iv).unwrap();

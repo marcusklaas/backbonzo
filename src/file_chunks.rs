@@ -44,7 +44,7 @@ mod test {
         let file_path = temp_dir.path().join("test");
         let mut file = File::create(&file_path).unwrap();
 
-        file.write(&[0, 1, 2, 3, 4]).unwrap();        
+        file.write_all(&[0, 1, 2, 3, 4]).unwrap();        
 
         let mut chunks = super::Chunks::from_path(&file_path, 2).unwrap();
 

@@ -121,7 +121,7 @@ impl fmt::Debug for BackupSummary {
 
 impl fmt::Display for BackupSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt(f)
+        fmt::Debug::fmt(self, f)
     }
 }
 

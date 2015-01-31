@@ -102,6 +102,8 @@ pub struct Database {
     path: Path
 }
 
+unsafe impl Send for Database { }
+
 impl Database {
     fn new(path: Path, flags: SqliteOpenFlags) -> BonzoResult<Database> {
         Ok(Database {

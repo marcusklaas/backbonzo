@@ -1,4 +1,8 @@
-#![allow(unstable)]
+#![feature(collections)]
+#![feature(io)]
+#![feature(std_misc)]
+#![feature(core)]
+#![feature(path)]
 
 extern crate backbonzo;
 extern crate time;
@@ -106,7 +110,7 @@ fn backup_and_restore() {
     for filename in filenames.iter() {
         let file_path = source_path.join(filename);
         let mut file = File::create(&file_path).unwrap();
-        assert!(file.write(bytes).is_ok());
+        assert!(file.write_all(bytes).is_ok());
         assert!(file.fsync().is_ok());
     }
 
@@ -188,7 +192,7 @@ fn renames() {
     let first_timestamp = {
         let file_path = source_path.join(first_file_name);
         let mut file = File::create(&file_path).unwrap();
-        file.write(first_message).unwrap();
+        file.write_all(first_message).unwrap();
         file.fsync().unwrap();
 
         let backup_result = backbonzo::backup(
@@ -211,7 +215,7 @@ fn renames() {
         rename(&prev_path, &file_path).unwrap();
 
         let mut file = File::open_mode(&file_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
-        file.write(second_message).unwrap();
+        file.write_all(second_message).unwrap();
         file.fsync().unwrap();
         
         let backup_result = backbonzo::backup(
