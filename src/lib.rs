@@ -43,7 +43,7 @@ mod summary;
 mod file_chunks;
 mod error;
 
-static DATABASE_FILENAME: &'static str = "index.db3";
+static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 
 #[derive(Copy, Eq, PartialEq, Show)]
 enum Directory {
@@ -93,7 +93,7 @@ impl BackupManager {
     // when the update hasn't been fully completed
     pub fn update(&mut self, block_bytes: u32, deadline: time::Tm) -> BonzoResult<BackupSummary> {
         let channel_receiver = export::start_export_thread(
-            self.database.get_path(),
+            &self.database,
             self.encryption_key.clone(),
             block_bytes,
             self.source_path.clone()

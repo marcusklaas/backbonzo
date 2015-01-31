@@ -102,6 +102,12 @@ pub struct Database {
     path: Path
 }
 
+impl Clone for Database {
+    fn clone(&self) -> Database {
+        Database::from_file(self.path.clone()).unwrap()
+    }
+}
+
 unsafe impl Send for Database { }
 
 impl Database {
@@ -133,10 +139,6 @@ impl Database {
                     })
                     .collect()
             })
-    }
-
-    pub fn get_path<'a>(&'a self) -> &'a Path {
-        &self.path
     }
     
     pub fn from_file(path: Path) -> BonzoResult<Database> {

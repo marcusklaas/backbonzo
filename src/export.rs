@@ -207,19 +207,14 @@ pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoR
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database_path: &Path, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: Path) -> SingleReceiver<FileInstruction> {
+pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: Path) -> SingleReceiver<FileInstruction> {
     let (mut transmitter, receiver) = single_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
-    let path = database_path.clone();
+    let new_database = database.clone();
 
     Thread::spawn(move|| {
-        let result = match Database::from_file(path) {
-            Err(e) => Err(e),
-            Ok(database) => {
-                ExportBlockSender::new(database, encryption_key, block_size, &mut transmitter)
-                    .and_then(|mut exporter| exporter
-                    .export_directory(&source_path, Directory::Root))
-            }
-        };
+        let result = ExportBlockSender::new(new_database, encryption_key, block_size, &mut transmitter)
+                                       .and_then(|mut exporter| exporter
+                                       .export_directory(&source_path, Directory::Root));
 
         let instruction = match result {
             Err(e) => FileInstruction::Error(e),
@@ -252,7 +247,7 @@ mod test {
         }
 
         let password = "password123";
-        let database_path = temp_dir.path().join("index.db3");
+        let database_path = temp_dir.path().join(".backbonzo.db3");
         let key = super::super::crypto::derive_key(password);
 
         super::super::init(
@@ -261,7 +256,8 @@ mod test {
             password
         ).unwrap();
 
-        let receiver = super::start_export_thread(&database_path, key, 10000000, temp_dir.path().clone());
+        let database = super::super::database::Database::from_file(database_path).unwrap();
+        let receiver = super::start_export_thread(&database, key, 10000000, temp_dir.path().clone());
 
         // give the export thread plenty of time to process all files
         Timer::new().unwrap().sleep(Duration::milliseconds(500));
