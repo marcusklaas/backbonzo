@@ -1,8 +1,10 @@
-use std::old_io::{IoResult, BufReader};
-use std::old_io::fs::{readdir, PathExtensions};
-use std::path::Path;
+use std::io::{Result, BufReader};
+use std::path::{PathBuf, Path};
 use std::rand::{Rng, OsRng};
 use std::thread::Thread;
+use std::fs::{read_dir, PathExt, Metadata};
+use std::borrow::ToOwned;
+use std::iter::IteratorExt;
 
 use bzip2::CompressionLevel;
 use bzip2::reader::BzCompressor;
@@ -12,7 +14,7 @@ use super::error::{BonzoResult, BonzoError};
 use super::database::Database;
 use super::crypto;
 use super::file_chunks::Chunks;
-use super::spsc::{SingleReceiver, SingleSender, single_channel};
+use super::comm::spsc::bounded::{new, Producer, Consumer};
 use super::iter_reduce::{Reduce, IteratorReduce};
 
 // The number of messages that should be buffered for the export thread. A large 
@@ -20,7 +22,7 @@ use super::iter_reduce::{Reduce, IteratorReduce};
 // unnecessary work when the receiver quits due to a time out. A small buffer
 // increases the likelihood of buffer underruns, especially when a sequence of
 // small files is being processed.
-static CHANNEL_BUFFER_SIZE: u32 = 10;
+static CHANNEL_BUFFER_SIZE: usize = 10;
 
 // Specification of messsages sent over the channel
 pub enum FileInstruction {
@@ -40,7 +42,7 @@ pub struct FileBlock {
     pub source_byte_count: u64
 }
 
-#[derive(Show)]
+#[derive(Debug)]
 pub enum BlockReference {
     ById(u32),
     ByHash(String)
@@ -48,7 +50,7 @@ pub enum BlockReference {
 
 // This is sent *after* all the blocks of a file have been transferred. It is
 // the receiver's responsibility to persist the file to the index.
-#[derive(Show)]
+#[derive(Debug)]
 pub struct FileComplete {
     pub filename: String,
     pub hash: String,
@@ -66,12 +68,12 @@ pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Box<[u8; 32]>,
     block_size: u32,
-    sender: &'sender mut SingleSender<FileInstruction>,
+    sender: &'sender mut Producer<FileInstruction>,
     rng: OsRng
 }
 
 impl<'sender> ExportBlockSender<'sender> {
-    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: u32, sender: &'sender mut SingleSender<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
+    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: u32, sender: &'sender mut Producer<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
         Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
@@ -85,13 +87,13 @@ impl<'sender> ExportBlockSender<'sender> {
     // Deletes references to deleted files which were previously found from the
     // database. Processes files in descending order of last mutation.
     pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
-        let content_list = try!(read_dir(path));
+        let content_list = try!(read_dir_sorted(path));
         let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
         
         for &(last_modified, ref content_path) in content_list.iter() {
             if content_path.is_dir() {
-                let relative_path = try!(content_path.path_relative_from(path).ok_or(BonzoError::from_str("Could not get relative path")));
-                let name = try!(relative_path.as_str().ok_or(BonzoError::from_str("Cannot express directory name in UTF8")));
+                let relative_path = try!(content_path.relative_from(path).ok_or(BonzoError::from_str("Could not get relative path")));
+                let name = try!(relative_path.to_str().ok_or(BonzoError::from_str("Cannot express directory name in UTF8")));
                 let child_directory = try!(self.database.get_directory(directory, name));
             
                 try!(self.export_directory(content_path, child_directory));
@@ -99,7 +101,8 @@ impl<'sender> ExportBlockSender<'sender> {
             else {
                 try!(
                     content_path
-                    .filename_str()
+                    .file_name()
+                    .and_then(|os_str| os_str.to_str())
                     .ok_or(BonzoError::from_str("Could not convert filename to string"))
                     .map(String::from_str)
                     .and_then(|filename| {
@@ -144,7 +147,7 @@ impl<'sender> ExportBlockSender<'sender> {
             block_reference_list.push(try!(self.export_block(slice)));
         }
         
-        try!(self.sender.send(FileInstruction::Complete(FileComplete {
+        try!(self.sender.send_sync(FileInstruction::Complete(FileComplete {
             filename: filename,
             hash: hash,
             last_modified: last_modified,
@@ -170,7 +173,7 @@ impl<'sender> ExportBlockSender<'sender> {
 
         let processed_bytes = try!(process_block(block, &*self.encryption_key, &*iv));
 
-        try!(self.sender.send(FileInstruction::NewBlock(FileBlock {
+        try!(self.sender.send_sync(FileInstruction::NewBlock(FileBlock {
             bytes: processed_bytes,
             iv: iv,
             hash: hash.clone(),
@@ -181,14 +184,18 @@ impl<'sender> ExportBlockSender<'sender> {
     }
 }
 
-fn read_dir(path: &Path) -> IoResult<Vec<(u64, Path)>> {
-    let mut vec: Vec<(u64, Path)> = try!(
-        readdir(path)
-        .and_then(|list| list.into_iter()
-            .map(|path| path.stat().map(move |stats| {
-                (stats.modified, path)
-            }))
-            .collect()
+fn read_dir_sorted(path: &Path) -> Result<Vec<(u64, PathBuf)>> {
+    let mut vec: Vec<(u64, PathBuf)> = try!(
+        read_dir(path)
+        .and_then(|list| list
+            .map(|possible_entry| {
+                possible_entry.and_then(|entry| {
+                    entry.path().metadata().map(move |stats| {
+                        (stats.modified(), path.to_owned())
+                    })
+                })
+            })
+            .collect::<Result<Vec<(u64, PathBuf)>>>()
         )
     );
 
@@ -199,29 +206,32 @@ fn read_dir(path: &Path) -> IoResult<Vec<(u64, Path)>> {
 
 pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {
     let mut compressor = BzCompressor::new(BufReader::new(clear_text), CompressionLevel::Smallest);
-    let compressed_bytes = try!(compressor.read_to_end());
+    let mut buffer = Vec::new();
+    
+    try!(compressor.read_to_end(&mut buffer));
         
-    Ok(try!(crypto::encrypt_block(compressed_bytes.as_slice(), key, iv)))
+    Ok(try!(crypto::encrypt_block(buffer.as_slice(), key, iv)))
 }
 
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: Path) -> SingleReceiver<FileInstruction> {
-    let (mut transmitter, receiver) = single_channel::<FileInstruction>(CHANNEL_BUFFER_SIZE);
+pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: PathBuf) -> Consumer<FileInstruction> {
+    let (mut transmitter, receiver) = new::<FileInstruction>(CHANNEL_BUFFER_SIZE);
     let new_database = database.clone();
 
     Thread::spawn(move|| {
         let result = ExportBlockSender::new(new_database, encryption_key, block_size, &mut transmitter)
-                                       .and_then(|mut exporter| exporter
-                                       .export_directory(&source_path, Directory::Root));
+                                       .and_then(|mut exporter| {
+                                           exporter.export_directory(&source_path, Directory::Root)
+                                       });
 
         let instruction = match result {
             Err(e) => FileInstruction::Error(e),
             _      => FileInstruction::Done
         };
 
-        let _ = transmitter.send(instruction);
+        let _ = transmitter.send_sync(instruction);
     });
 
     receiver

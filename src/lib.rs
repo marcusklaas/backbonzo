@@ -13,22 +13,27 @@ extern crate time;
 extern crate bzip2;
 extern crate glob;
 extern crate "crypto" as rust_crypto;
-extern crate spsc;
+extern crate comm;
 extern crate "iter-reduce" as iter_reduce;
+extern crate tempdir;
 
 #[cfg(test)]
 extern crate regex;
 
-use std::old_io::{IoResult, TempDir, BufReader, FilePermission};
-use std::old_io::fs::{unlink, copy, File, mkdir_recursive};
-use std::path::Path;
+use std::io::{self, Read, Write, BufReader};
+use std::fs::{remove_file, copy, File, create_dir_all, Permissions};
+use std::path::{PathBuf, Path};
 use std::os::getcwd;
+use std::ffi::{IntoBytes, AsOsStr};
+use std::hash::SipHasher;
+use std::path::AsPath;
 
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
 use rustc_serialize::hex::{ToHex, FromHex};
+use tempdir::TempDir;
 
 use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
@@ -45,7 +50,7 @@ mod error;
 
 static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 
-#[derive(Copy, Eq, PartialEq, Show)]
+#[derive(Copy, Eq, PartialEq, Debug)]
 enum Directory {
     Root,
     Child(i64)
@@ -53,27 +58,24 @@ enum Directory {
 
 pub struct BackupManager {
     database: Database,
-    source_path: Path,
-    backup_path: Path,
+    source_path: PathBuf,
+    backup_path: PathBuf,
     encryption_key: Box<[u8; 32]>
 }
 
 impl BackupManager {
-    pub fn new(database_path: Path, source_path: Path, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
+    pub fn new(database_path: PathBuf, source_path: PathBuf, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
         let database = try!(Database::from_file(database_path));
         
         let backup_path = try!(
             database.get_key("backup_path")
-            .map_err(|error| BonzoError::Database(error))
-            .and_then(|encoded| {
-                encoded.ok_or(BonzoError::from_str("Could not find backup path in database"))
-            })
-            .and_then(|hex| {
-                hex.from_hex().map_err(|_| BonzoError::from_str("Could not decode hex"))
-            })
-            .and_then(|byte_vector| {
-                Path::new_opt(byte_vector).ok_or(BonzoError::from_str("Could not create path from byte vector"))
-            })
+                .map_err(|error| BonzoError::Database(error))
+                .and_then(|encoded| {
+                    encoded.ok_or(BonzoError::from_str("Could not find backup path in database"))
+                })
+                .and_then(|path_string| {
+                    decode_path(&path_string)
+                })
         );
         
         let manager = BackupManager {
@@ -101,7 +103,11 @@ impl BackupManager {
         
         let mut summary = BackupSummary::new();
 
-        for msg in channel_receiver.iter().take_while(|_| time::now_utc() < deadline) {
+        while let Ok(msg) = channel_receiver.recv_sync() {
+            if time::now_utc() > deadline {
+                break;
+            }            
+            
             match msg {
                 FileInstruction::Done                => break,
                 FileInstruction::Error(e)            => return Err(e),
@@ -134,7 +140,7 @@ impl BackupManager {
     // Restores a single file by decrypting and inflating a sequence of blocks
     // and writing them to the given path in order
     pub fn restore_file(&self, path: &Path, block_list: &[u32], summary: &mut RestorationSummary) -> BonzoResult<()> {
-        try!(mkdir_recursive(&path.dir_path(), FilePermission::all()));
+        try!(create_dir_all(path.parent().unwrap()));
         
         let mut file = try!(File::create(path));
 
@@ -149,7 +155,7 @@ impl BackupManager {
             try!(file.write_all(byte_slice));
         }
 
-        try!(file.fsync());
+        try!(file.sync_all());
 
         summary.add_file();
 
@@ -165,7 +171,7 @@ impl BackupManager {
         let path = block_output_path(&self.backup_path, block.hash.as_slice());
         let byte_slice = block.bytes.as_slice();
 
-        try!(mkdir_recursive(&path.dir_path(), FilePermission::all())
+        try!(create_dir_all(path.parent().unwrap())
             .and(write_to_disk(&path, byte_slice)));
 
         try!(self.database.persist_block(block.hash.as_slice(), &*block.iv));
@@ -237,11 +243,11 @@ impl BackupManager {
         try!(write_to_disk(&new_index, procesed_bytes.as_slice()));
         try!(copy(&new_index, &index));
         
-        Ok(try!(unlink(&new_index)))
+        Ok(try!(remove_file(&new_index)))
     }
 }
 
-pub fn init(source_path: Path, backup_path: Path, password: &str) -> BonzoResult<()> {
+pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> BonzoResult<()> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let database = try!(Database::create(database_path));
     let hash = crypto::hash_password(password);
@@ -256,18 +262,23 @@ pub fn init(source_path: Path, backup_path: Path, password: &str) -> BonzoResult
     Ok(())
 }
 
-// Takes a path, turns it into an absolute path if necessary and hex encodes it
-fn encode_path(path: &Path) -> IoResult<String> {
-    if path.is_relative() {
-        let absolute = try!(getcwd()).join(path);
+// Takes a path, turns it into an absolute path if necessary
+// FIXME: cannot make relative path into absolute yet -- wait for new io lib to change
+fn encode_path(path: &Path) -> io::Result<String> {
+    //if path.is_relative() {
+    //    return None;
+    //}
+    //
+    //path.as_os_str().as_str().map(|str| str.to_owned())
 
-        return Ok(absolute.as_vec().to_hex());
-    }
-
-    Ok(path.as_vec().to_hex())
+    Ok(String::from_str(""))
 }
 
-pub fn backup(source_path: Path, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
+fn decode_path(path: &AsPath) -> BonzoResult<PathBuf> {
+    Err(BonzoError::from_str("implement me!"))
+}
+
+pub fn backup(source_path: PathBuf, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let mut manager = try!(BackupManager::new(database_path, source_path, crypto::derive_key(password)));
     let summary = try!(manager.update(block_bytes, deadline));
@@ -277,7 +288,7 @@ pub fn backup(source_path: Path, block_bytes: u32, password: &str, deadline: tim
     Ok(summary)
 }
 
-pub fn restore(source_path: Path, backup_path: Path, password: &str, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
+pub fn restore(source_path: PathBuf, backup_path: PathBuf, password: &str, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
     let temp_directory = try!(TempDir::new("bonzo"));
     let key = crypto::derive_key(password);
     let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), &*key));
@@ -292,7 +303,7 @@ pub fn epoch_milliseconds() -> u64 {
     stamp.nsec as u64 / 1000 / 1000 + stamp.sec as u64 * 1000
 }
 
-fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8; 32]) -> BonzoResult<Path> {
+fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8; 32]) -> BonzoResult<PathBuf> {
     let decrypted_index_path = temp_dir.join(DATABASE_FILENAME);
     let bytes = try!(load_processed_block(&backup_path.join("index"), key, &[0u8; 16]));
 
@@ -302,22 +313,33 @@ fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8; 32]) -> BonzoRe
 }
 
 fn load_processed_block(path: &Path, key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {
-    let contents = try!(File::open(path).and_then(|mut file| file.read_to_end()));
+    let contents: Vec<u8> = try!(File::open(path).and_then(|mut file| {
+        let mut buffer = Vec::new();
+        try!(file.read_to_end(&mut buffer));
+        Ok(buffer)
+    }));
+    
     let decrypted_bytes = try!(crypto::decrypt_block(contents.as_slice(), key, iv));
     let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
     
-    Ok(try!(decompressor.read_to_end()))
+    let mut buffer = Vec::new();
+    try!(decompressor.read_to_end(&mut buffer));
+    Ok(buffer)
 }
 
-fn block_output_path(base_path: &Path, hash: &str) -> Path {
-    base_path.join_many(&[&hash[0..2], hash])
+fn block_output_path(base_path: &Path, hash: &str) -> PathBuf {
+    let mut path = base_path.join(&hash[0..2]);
+
+    path.push(hash);
+
+    path
 }
 
-fn write_to_disk(path: &Path, bytes: &[u8]) -> IoResult<()> {
+fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = try!(File::create(path));
 
     try!(file.write_all(bytes));
-    file.fsync()
+    file.sync_all()
 }
 
 #[cfg(test)]
@@ -345,7 +367,7 @@ mod test {
         
         let mut file = File::create(&file_path).unwrap();
         assert!(file.write_all(processed_bytes.as_slice()).is_ok());
-        assert!(file.fsync().is_ok());
+        assert!(file.sync_all().is_ok());
 
         let retrieved_bytes = super::load_processed_block(&file_path, &key, &iv).unwrap();
 

@@ -8,7 +8,8 @@ use super::rust_crypto::hmac::Hmac;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use super::file_chunks::Chunks;
-use std::old_io::IoResult;
+use std::path::{PathBuf, Path};
+use std::io;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
@@ -31,7 +32,7 @@ pub fn derive_key(password: &str) -> Box<[u8; 32]> {
 }
 
 // Returns the SHA256 hash of a file in hex encoding
-pub fn hash_file(path: &Path) -> IoResult<String> {
+pub fn hash_file(path: &Path) -> io::Result<String> {
     let mut chunks = try!(Chunks::from_path(path, 1024));
     let mut hasher = Sha256::new();
     

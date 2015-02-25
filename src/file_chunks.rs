@@ -1,16 +1,17 @@
-use std::old_io::IoResult;
-use std::old_io::fs::File;
+use std::io::{Read, Result};
+use std::fs::File;
 use std::mem::forget;
+use std::path::Path;
 
 // Semi-iterator which reads a file one block at a time. Is not a proper
 // Iterator because we only keep one block in memory at a time.
-pub struct Chunks<'a> {
+pub struct Chunks {
     file: File,
     buffer: Vec<u8>
 }
 
-impl<'a> Chunks<'a> {
-    pub fn from_path(path: &Path, block_size: u32) -> IoResult<Chunks> {
+impl Chunks {
+    pub fn from_path(path: &Path, block_size: u32) -> Result<Chunks> {
         let machine_block_size = block_size as usize;
         let mut vec = Vec::with_capacity(machine_block_size);
         let pointer = vec.as_mut_ptr();
@@ -25,7 +26,7 @@ impl<'a> Chunks<'a> {
         })
     }
     
-    pub fn next(&'a mut self) -> Option<&'a [u8]> {
+    pub fn next(&mut self) -> Option<&[u8]> {
         self.file.read(self.buffer.as_mut_slice()).ok().map(move |bytes| {
             &self.buffer[0..bytes]
         })

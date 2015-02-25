@@ -1,5 +1,6 @@
 extern crate rusqlite;
 extern crate libc;
+extern crate "libsqlite3-sys" as libsqlite;
 
 use super::{epoch_milliseconds, Directory};
 use super::error::{BonzoResult, BonzoError};
@@ -8,10 +9,13 @@ use super::iter_reduce::{Reduce, IteratorReduce};
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use self::rusqlite::types::{FromSql, ToSql};
-use self::rusqlite::ffi::sqlite3_stmt;
+use self::libsqlite::bindgen::sqlite3_stmt;
 use self::libc::c_int;
 
-use std::old_io::fs::{File, PathExtensions};
+use std::io::Read;
+use std::fs::File;
+use std::path::PathBuf;
+use std::fs::PathExt;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 
@@ -43,7 +47,7 @@ impl FromSql for Directory {
 // is represented by its path and a list of block id's. 
 pub struct Aliases<'a> {
     database: &'a Database,
-    path: Path,
+    path: PathBuf, // FIXME: maybe this can be a &Path instead?
     timestamp: u64,
     file_list: Vec<(u32, String)>,
     directory_list: Vec<Directory>,
@@ -51,7 +55,7 @@ pub struct Aliases<'a> {
 }
 
 impl<'a> Aliases<'a> {
-    pub fn new(database: &'a Database, path: Path, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
+    pub fn new(database: &'a Database, path: PathBuf, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
         Ok(Aliases {
             database: database,
             path: path,
@@ -64,9 +68,9 @@ impl<'a> Aliases<'a> {
 }
 
 impl<'a> Iterator for Aliases<'a> {
-    type Item = (Path, Vec<u32>);
+    type Item = (PathBuf, Vec<u32>);
     
-    fn next(&mut self) -> Option<(Path, Vec<u32>)> {
+    fn next(&mut self) -> Option<(PathBuf, Vec<u32>)> {
         // return file from child directory
         loop {
             if let Some(ref mut dir) = self.subdirectory {
@@ -81,7 +85,7 @@ impl<'a> Iterator for Aliases<'a> {
                     self.database.get_directory_name(id).and_then(|directory_name| {
                         Aliases::new(
                             self.database,
-                            self.path.join(directory_name),
+                            self.path.join(&directory_name),
                             id,
                             self.timestamp
                         )
@@ -99,7 +103,7 @@ impl<'a> Iterator for Aliases<'a> {
 
 pub struct Database {
     connection: SqliteConnection,
-    path: Path
+    path: PathBuf
 }
 
 impl Clone for Database {
@@ -111,14 +115,9 @@ impl Clone for Database {
 unsafe impl Send for Database { }
 
 impl Database {
-    fn new(path: Path, flags: SqliteOpenFlags) -> BonzoResult<Database> {
+    fn new(path: PathBuf, flags: SqliteOpenFlags) -> BonzoResult<Database> {
         Ok(Database {
-            connection: try!(path
-                .as_str()
-                .ok_or(BonzoError::from_str("Couldn't convert database path to string"))
-                .and_then(|filename|
-                    Ok(try!(SqliteConnection::open_with_flags(filename, flags)))
-                )),
+            connection: try!(SqliteConnection::open_with_flags(&path, flags)),
             path: path
         })
     }
@@ -141,11 +140,11 @@ impl Database {
             })
     }
     
-    pub fn from_file(path: Path) -> BonzoResult<Database> {
+    pub fn from_file(path: PathBuf) -> BonzoResult<Database> {
         Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE)
     }
 
-    pub fn create(path: Path) -> BonzoResult<Database> {
+    pub fn create(path: PathBuf) -> BonzoResult<Database> {
         match path.exists() {
             true  => Err(BonzoError::from_str("Database file already exists")),
             false => Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE)
@@ -155,7 +154,16 @@ impl Database {
     pub fn to_bytes(self) -> BonzoResult<Vec<u8>> {
         try!(self.connection.close());
 
-        Ok(try!(File::open(&self.path).and_then(|mut file| file.read_to_end())))
+        let mut buffer = Vec::new();
+
+        try!(
+            File::open(&self.path)
+            .and_then(|mut file| {
+                file.read_to_end(&mut buffer)
+            })
+         );
+
+        Ok(buffer)
     }
 
     pub fn get_subdirectories(&self, directory: Directory) -> SqliteResult<Vec<Directory>> {
@@ -277,7 +285,7 @@ impl Database {
             Ok(iv)  => {
                 let mut boxed_iv = Box::new([0u8; 16]);
                 
-                for i in 0..16us {
+                for i in 0..16usize {
                     boxed_iv[i] = iv[i];
                 }
                 
@@ -413,6 +421,6 @@ mod test {
 
         let great_grand_children = db.get_subdirectories(grand_child).unwrap();
 
-        assert_eq!(0us, great_grand_children.len());
+        assert_eq!(0usize, great_grand_children.len());
     }
 }
