@@ -9,7 +9,6 @@ use super::iter_reduce::{Reduce, IteratorReduce};
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use self::rusqlite::types::{FromSql, ToSql};
-use self::libsqlite::bindgen::sqlite3_stmt;
 use self::libc::c_int;
 
 use std::io::Read;
@@ -22,7 +21,7 @@ use std::iter::FromIterator;
 pub use self::rusqlite::SqliteError;
 
 impl ToSql for Directory {
-    unsafe fn bind_parameter(&self, stmt: *mut sqlite3_stmt, col: c_int) -> c_int {
+    unsafe fn bind_parameter(&self, stmt: *mut libsqlite::sqlite3_stmt, col: c_int) -> c_int {
         let i = match *self {
             Directory::Root     => 0,
             Directory::Child(i) => i
@@ -33,7 +32,7 @@ impl ToSql for Directory {
 }
 
 impl FromSql for Directory {
-    unsafe fn column_result(stmt: *mut sqlite3_stmt, col: c_int) -> SqliteResult<Directory> {
+    unsafe fn column_result(stmt: *mut libsqlite::sqlite3_stmt, col: c_int) -> SqliteResult<Directory> {
         FromSql::column_result(stmt, col).map(|i| {
             match i {
                 0 => Directory::Root,
@@ -298,8 +297,8 @@ impl Database {
         self.connection.query_row_safe(
             "SELECT SUM(id) FROM block WHERE hash = $1;",
             &[&hash],
-            |&: row: SqliteRow| {
-                row.get::<Option<i64>>(0).map(|&: signed: i64| {
+            |row: SqliteRow| {
+                row.get::<Option<i64>>(0).map(|signed: i64| {
                     signed as u32
                 })
             }
@@ -391,7 +390,7 @@ impl Database {
 
 #[cfg(test)]
 mod test {
-    use std::old_io::TempDir;
+    use std::fs::TempDir;
     use Directory;
 
     #[test]

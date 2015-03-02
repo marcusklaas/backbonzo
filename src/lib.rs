@@ -1,12 +1,16 @@
 #![feature(collections)]
 #![feature(libc)]
 #![feature(os)]
+#![feature(fs)]
+#![feature(tempdir)]
 #![feature(io)]
+#![feature(old_io)]
 #![feature(std_misc)]
-#![feature(rand)]
 #![feature(core)]
 #![feature(path)]
 #![feature(plugin)]
+
+#![plugin(regex_macros)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate time;
@@ -15,25 +19,21 @@ extern crate glob;
 extern crate "crypto" as rust_crypto;
 extern crate comm;
 extern crate "iter-reduce" as iter_reduce;
-extern crate tempdir;
+extern crate rand;
 
 #[cfg(test)]
 extern crate regex;
 
 use std::io::{self, Read, Write, BufReader};
-use std::fs::{remove_file, copy, File, create_dir_all, Permissions};
+use std::fs::{TempDir, remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
-use std::os::getcwd;
-use std::ffi::{IntoBytes, AsOsStr};
-use std::hash::SipHasher;
-use std::path::AsPath;
+use std::ffi::AsOsStr;
+use std::env::current_dir;
 
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
-use rustc_serialize::hex::{ToHex, FromHex};
-use tempdir::TempDir;
 
 use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
@@ -73,7 +73,7 @@ impl BackupManager {
                 .and_then(|encoded| {
                     encoded.ok_or(BonzoError::from_str("Could not find backup path in database"))
                 })
-                .and_then(|path_string| {
+                .map(|path_string| {
                     decode_path(&path_string)
                 })
         );
@@ -263,19 +263,19 @@ pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> Bonzo
 }
 
 // Takes a path, turns it into an absolute path if necessary
-// FIXME: cannot make relative path into absolute yet -- wait for new io lib to change
 fn encode_path(path: &Path) -> io::Result<String> {
-    //if path.is_relative() {
-    //    return None;
-    //}
-    //
-    //path.as_os_str().as_str().map(|str| str.to_owned())
+    if path.is_relative() {
+        let mut cwd = try!(current_dir());
+        cwd.push(path);
+        
+        return Ok(cwd.to_string_lossy().into_owned())
+    }
 
-    Ok(String::from_str(""))
+    Ok(path.to_string_lossy().into_owned())
 }
 
-fn decode_path(path: &AsPath) -> BonzoResult<PathBuf> {
-    Err(BonzoError::from_str("implement me!"))
+fn decode_path(path: &AsOsStr) -> PathBuf {
+    PathBuf::new(path)
 }
 
 pub fn backup(source_path: PathBuf, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
@@ -344,11 +344,11 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
 
 #[cfg(test)]
 mod test {
-    use std::old_io::{BufReader, TempDir};
-    use std::old_io::fs::File;
-    use std::rand::{Rng, OsRng};
+    use std::io::{Read, Write, BufReader};
+    use std::fs::{TempDir, File};
+    use super::rand::{Rng, OsRng};
     use super::bzip2::reader::{BzDecompressor, BzCompressor};
-    use super::bzip2::CompressionLevel;
+    use super::bzip2::Compress;
 
     #[test]
     fn process_reversability() {
@@ -383,8 +383,10 @@ mod test {
         let _ = super::write_to_disk(&file_path, message.as_bytes());
 
         let mut file = File::open(&file_path).unwrap();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
 
-        assert!(file.read_to_end().unwrap().as_slice() == message.as_bytes());
+        assert!(buffer.as_slice() == message.as_bytes());
     }
 
     #[test]
@@ -397,14 +399,15 @@ mod test {
             let index = rng.gen::<u32>() % 10000;
             let slice = &original[0..index as usize];
 
-            let mut compressor = BzCompressor::new(BufReader::new(slice), CompressionLevel::Smallest);
-            let compressed_bytes = compressor.read_to_end().unwrap();
+            let mut compressor = BzCompressor::new(slice, Compress::Best);
+            let mut compressed_bytes = Vec::new();
+            compressor.read_to_end(&mut compressed_bytes).unwrap();
             
             let mut decompressor = BzDecompressor::new(BufReader::new(compressed_bytes.as_slice()));
-                
-            let decompresed_bytes = decompressor.read_to_end().unwrap();
+            let mut decompressed_bytes = Vec::new();
+            decompressor.read_to_end(&mut decompressed_bytes).unwrap();
 
-            assert_eq!(slice, decompresed_bytes.as_slice());
+            assert_eq!(slice, decompressed_bytes.as_slice());
         }
     }
 }

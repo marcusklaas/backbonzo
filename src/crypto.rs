@@ -8,7 +8,7 @@ use super::rust_crypto::hmac::Hmac;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use super::file_chunks::Chunks;
-use std::path::{PathBuf, Path};
+use std::path::Path;
 use std::io;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
@@ -88,9 +88,9 @@ pub fn decrypt_block(block: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Result<Vec<
 
 #[cfg(test)]
 mod test {
-    use std::rand::{Rng, OsRng};
-    use std::old_io::TempDir;
-    use std::old_io::fs::File;
+    use super::super::rand::{Rng, OsRng};
+    use std::fs::{TempDir, File};
+    use std::io::Write;
     
     #[test]
     fn aes_encryption_decryption() {
@@ -152,7 +152,7 @@ mod test {
         assert_eq!(expected_hash, hash.as_slice());
 
         let _ = file.write_all("test".as_bytes()).unwrap();
-        let _ = file.fsync().unwrap();
+        let _ = file.sync_all().unwrap();
 
         let new_expected_hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
         let new_hash = super::hash_file(&file_path).unwrap();

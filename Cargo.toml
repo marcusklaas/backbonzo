@@ -12,25 +12,23 @@ docopt = "*"
 time = "*"
 glob = "*"
 rustc-serialize = "*"
-regex = "*" # for tests only -- shouldnt be linked in otherwise
-regex_macros = "*"
 rusqlite = "*"
 libsqlite3-sys = "*"
+rust-crypto = "*"
+bzip2 = "*"
+rand = "*"
 
-[dependencies.tempdir]
-git = "https://github.com/danburkert/tempdir"
+[dependencies.regex]
+git = "https://github.com/rust-lang/regex.git"
+
+[dependencies.regex_macros]
+git = "https://github.com/rust-lang/regex.git"
 
 [dependencies.comm]
 git = "https://github.com/mahkoh/comm"
 
-[dependencies.rust-crypto]
-git = "https://github.com/dagenix/rust-crypto"
-
 [dependencies.iter-reduce]
 git = "https://github.com/marcusklaas/iter-reduce"
-
-[dependencies.bzip2]
-git = "https://github.com/alexcrichton/bzip2-rs"
 
 [[bin]]
 

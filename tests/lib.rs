@@ -3,15 +3,22 @@
 #![feature(std_misc)]
 #![feature(core)]
 #![feature(path)]
+#![feature(tempdir)]
+#![feature(fs)]
 
 extern crate backbonzo;
 extern crate time;
 
 use backbonzo::BonzoError;
-use std::old_io::{FilePermission, FileAccess, FileMode, TempDir};
-use std::old_io::fs::{File, PathExtensions, mkdir_recursive, rename, unlink};
+use std::io::{Read, Write, self};
+use std::fs::{File, PathExt, create_dir_all, rename, remove_file, TempDir, OpenOptions};
 use std::time::duration::Duration;
 use time::get_time;
+use std::path::{PathBuf, AsPath};
+
+fn open_read_append(path: &AsPath) -> io::Result<File> {
+    OpenOptions::new().read(true).write(true).append(false).open(path)
+}
 
 #[test]
 fn init() {
@@ -21,16 +28,16 @@ fn init() {
     let password = "testpassword";
 
     let result = backbonzo::init(
-        source_dir.path().clone(),
-        backup_dir.path().clone(),
+        PathBuf::new(source_dir.path()),
+        PathBuf::new(backup_dir.path()),
         password.clone()
     );
 
     assert!(result.is_ok());
 
     let second_result = backbonzo::init(
-        source_dir.path().clone(),
-        backup_dir.path().clone(),
+        PathBuf::new(source_dir.path()),
+        PathBuf::new(backup_dir.path()),
         password.clone()
     );
 
@@ -45,7 +52,7 @@ fn init() {
 #[test]
 fn backup_wrong_password() {
     let dir = TempDir::new("wrong-password").unwrap();
-    let source_path = dir.path().clone();
+    let source_path = PathBuf::new(dir.path());
     let destination_path = source_path.clone();
     let deadline = time::now();
 
@@ -74,7 +81,7 @@ fn backup_wrong_password() {
 #[test]
 fn backup_no_init() {
     let dir = TempDir::new("no-init").unwrap();
-    let source_path = dir.path().clone();
+    let source_path = PathBuf::new(dir.path());
     let deadline = time::now();
 
     let backup_result = backbonzo::backup(
@@ -97,12 +104,12 @@ fn backup_no_init() {
 fn backup_and_restore() {
     let source_temp = TempDir::new("source").unwrap();
     let destination_temp = TempDir::new("destination").unwrap();
-    let source_path = source_temp.path().clone();
-    let destination_path = destination_temp.path().clone();
+    let source_path = PathBuf::new(source_temp.path());
+    let destination_path = PathBuf::new(destination_temp.path());
     let password = "testpassword";
     let deadline = time::now() + Duration::minutes(1);
 
-    assert!(mkdir_recursive(&source_path.join("test"), FilePermission::all()).is_ok());
+    assert!(create_dir_all(&source_path.join("test")).is_ok());
 
     let filenames = ["test/welcome.txt", "welco.yolo", "smth_diffrent.jpg"];
     let bytes = "71d6e2f35502c03743f676449c503f487de29988".as_bytes();
@@ -111,7 +118,7 @@ fn backup_and_restore() {
         let file_path = source_path.join(filename);
         let mut file = File::create(&file_path).unwrap();
         assert!(file.write_all(bytes).is_ok());
-        assert!(file.fsync().is_ok());
+        assert!(file.sync_all().is_ok());
     }
 
     assert!(
@@ -133,7 +140,7 @@ fn backup_and_restore() {
 
     let timestamp = epoch_milliseconds();
     let restore_temp = TempDir::new("restore").unwrap();
-    let restore_path = restore_temp.path().clone();
+    let restore_path = PathBuf::new(restore_temp.path());
 
     let restore_result = backbonzo::restore(
         restore_path.clone(),
@@ -150,8 +157,10 @@ fn backup_and_restore() {
     assert!(restored_file_path.exists());
 
     let mut restored_file = File::open(&restored_file_path).unwrap();
-
-    assert_eq!(bytes, restored_file.read_to_end().unwrap().as_slice());
+    let mut buffer = Vec::new();
+    restored_file.read_to_end(&mut buffer).unwrap();
+    
+    assert_eq!(bytes, buffer.as_slice());
 
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
     assert!(restore_path.join("test/welcome.txt").exists());
@@ -167,8 +176,8 @@ fn epoch_milliseconds() -> u64 {
 fn renames() {
     let source_temp = TempDir::new("rename-source").unwrap();
     let destination_temp = TempDir::new("first-destination").unwrap();
-    let source_path = source_temp.path().clone();
-    let destination_path = destination_temp.path().clone();
+    let source_path = PathBuf::new(source_temp.path());
+    let destination_path = PathBuf::new(destination_temp.path());
     let password = "helloworld";
     let deadline = time::now() + Duration::minutes(10);
 
@@ -181,19 +190,19 @@ fn renames() {
     );
 
     let first_file_name = "first";
-    let first_message   = "first message. ".as_bytes();
+    let first_message   = b"first message. ";
 
     let second_file_name = "second";
-    let second_message   = "second".as_bytes();
+    let second_message   = b"second";
 
-    let mixed_message = "secondmessage. ".as_bytes();
+    let mixed_message = b"secondmessage. ";
     
     // create 1 file in source map
     let first_timestamp = {
         let file_path = source_path.join(first_file_name);
         let mut file = File::create(&file_path).unwrap();
         file.write_all(first_message).unwrap();
-        file.fsync().unwrap();
+        file.sync_all().unwrap();
 
         let backup_result = backbonzo::backup(
             source_path.clone(),
@@ -214,9 +223,9 @@ fn renames() {
 
         rename(&prev_path, &file_path).unwrap();
 
-        let mut file = File::open_mode(&file_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
+        let mut file = open_read_append(&file_path).unwrap();
         file.write_all(second_message).unwrap();
-        file.fsync().unwrap();
+        file.sync_all().unwrap();
         
         let backup_result = backbonzo::backup(
             source_path.clone(),
@@ -253,7 +262,7 @@ fn renames() {
     {
         let first_path = source_path.join(first_file_name);
 
-        unlink(&first_path).unwrap();
+        remove_file(&first_path).unwrap();
 
         let backup_result = backbonzo::backup(
             source_path.clone(),
@@ -268,7 +277,7 @@ fn renames() {
     // restore to second state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = restore_temp.path().clone();
+        let restore_path = PathBuf::new(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -286,8 +295,9 @@ fn renames() {
         assert!(second_path.exists());
         assert!(! first_path.exists());
 
-        let mut file = File::open_mode(&second_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
-        let contents = file.read_to_end().unwrap();
+        let mut file = open_read_append(&second_path).unwrap();
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).unwrap();
 
         assert_eq!(mixed_message, contents.as_slice());
     }
@@ -295,7 +305,7 @@ fn renames() {
     // restore to third state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = restore_temp.path().clone();
+        let restore_path = PathBuf::new(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -313,8 +323,9 @@ fn renames() {
         assert!( ! second_path.exists());
         assert!(first_path.exists());
 
-        let mut file = File::open_mode(&first_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
-        let contents = file.read_to_end().unwrap();
+        let mut file = open_read_append(&first_path).unwrap();
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).unwrap();
 
         assert_eq!(mixed_message, contents.as_slice());
     }
@@ -322,7 +333,7 @@ fn renames() {
     // restore to last state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = restore_temp.path().clone();
+        let restore_path = PathBuf::new(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -344,7 +355,7 @@ fn renames() {
     // restore to first state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = restore_temp.path().clone();
+        let restore_path = PathBuf::new(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -362,8 +373,9 @@ fn renames() {
         assert!(! second_path.exists());
         assert!(first_path.exists());
 
-        let mut file = File::open_mode(&first_path, FileMode::Open, FileAccess::ReadWrite).unwrap();
-        let contents = file.read_to_end().unwrap();
+        let mut file = open_read_append(&first_path).unwrap();
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents).unwrap();
 
         assert_eq!(first_message, contents.as_slice());
     }
@@ -371,7 +383,7 @@ fn renames() {
     // restore to initial state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = restore_temp.path().clone();
+        let restore_path = PathBuf::new(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),

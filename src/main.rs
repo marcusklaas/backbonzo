@@ -1,5 +1,5 @@
 #![feature(core)]
-#![feature(io)]
+#![feature(old_io)]
 #![feature(std_misc)]
 #![feature(path)]
 #![cfg(not(test))]
@@ -10,6 +10,7 @@ extern crate docopt;
 extern crate time;
 
 use docopt::Docopt;
+use std::path::PathBuf;
 use std::time::duration::Duration;
 use std::fmt::Debug;
 use std::old_io::stderr;
@@ -34,7 +35,7 @@ Options:
   -f --filter=<exp>          Regular expression for paths [default: **].
 ";
 
-#[derive(RustcDecodable, Show)]
+#[derive(RustcDecodable, Debug)]
 struct Args {
     pub cmd_init: bool,
     pub cmd_backup: bool,
@@ -48,7 +49,7 @@ struct Args {
     pub flag_filter: String
 }
 
-#[derive(RustcDecodable, Show)]
+#[derive(RustcDecodable, Debug)]
 enum Operation {
     Init,
     Backup,
@@ -59,8 +60,8 @@ fn main() {
     let args: Args = Docopt::new(USAGE)
                             .and_then(|d| d.decode())
                             .unwrap_or_else(|e| e.exit());
-    let source_path = Path::new(args.flag_source);
-    let backup_path = Path::new(args.flag_destination);
+    let source_path = PathBuf::new(&args.flag_source);
+    let backup_path = PathBuf::new(&args.flag_destination);
     let block_bytes = 1000 * args.flag_blocksize;
     let deadline = time::now() + match args.flag_timeout {
         0    => Duration::weeks(52),

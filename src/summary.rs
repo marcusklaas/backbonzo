@@ -128,8 +128,7 @@ impl fmt::Display for BackupSummary {
 #[cfg(test)]
 mod test {
     extern crate regex;
-    #[plugin] #[no_link]
-    extern crate regex_macros;
+    #[no_link] extern crate regex_macros;
 
     use super::super::time;
     use std::num::SignedInt;

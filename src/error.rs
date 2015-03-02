@@ -1,5 +1,5 @@
 use std::error::FromError;
-use std::io::error::Error;
+use std::io::Error;
 use std::fmt;
 
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;

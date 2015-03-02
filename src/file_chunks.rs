@@ -27,8 +27,11 @@ impl Chunks {
     }
     
     pub fn next(&mut self) -> Option<&[u8]> {
-        self.file.read(self.buffer.as_mut_slice()).ok().map(move |bytes| {
-            &self.buffer[0..bytes]
+        self.file.read(self.buffer.as_mut_slice()).ok().and_then(move |bytes| {
+            match bytes > 0 {
+                true  => Some(&self.buffer[0..bytes]),
+                false => None
+            }
         })
     }
 }
@@ -36,8 +39,8 @@ impl Chunks {
 
 #[cfg(test)]
 mod test {
-    use std::old_io::TempDir;
-    use std::old_io::File;
+    use std::io::Write;
+    use std::fs::{TempDir, File};
     
     #[test]
     fn chunks() {
@@ -51,7 +54,7 @@ mod test {
 
         assert_eq!([0, 1], chunks.next().unwrap());
         assert_eq!([2, 3], chunks.next().unwrap());
-        assert_eq!([4], chunks.next().unwrap());
+        assert_eq!([4], chunks.next().unwrap());        
         assert!(chunks.next().is_none());
     }
 

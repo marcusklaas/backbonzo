@@ -1,20 +1,20 @@
-use std::io::{Result, BufReader};
+use std::io::{Read, Write, Result};
 use std::path::{PathBuf, Path};
-use std::rand::{Rng, OsRng};
-use std::thread::Thread;
-use std::fs::{read_dir, PathExt, Metadata};
+use std::thread::spawn;
+use std::fs::{read_dir, PathExt};
 use std::borrow::ToOwned;
 use std::iter::IteratorExt;
 
-use bzip2::CompressionLevel;
+use bzip2::Compress;
 use bzip2::reader::BzCompressor;
+use super::rand::{Rng, ThreadRng, thread_rng};
 
 use Directory;
 use super::error::{BonzoResult, BonzoError};
 use super::database::Database;
 use super::crypto;
 use super::file_chunks::Chunks;
-use super::comm::spsc::bounded::{new, Producer, Consumer};
+use super::comm::spsc::bounded::{self, Producer, Consumer};
 use super::iter_reduce::{Reduce, IteratorReduce};
 
 // The number of messages that should be buffered for the export thread. A large 
@@ -68,18 +68,18 @@ pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Box<[u8; 32]>,
     block_size: u32,
-    sender: &'sender mut Producer<FileInstruction>,
-    rng: OsRng
+    sender: &'sender mut Producer<'static, FileInstruction>,
+    rng: ThreadRng
 }
 
 impl<'sender> ExportBlockSender<'sender> {
-    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: u32, sender: &'sender mut Producer<FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
+    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: u32, sender: &'sender mut Producer<'static, FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
         Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
             block_size: block_size,
             sender: sender,
-            rng: try!(OsRng::new())
+            rng: thread_rng()
         })
     }
 
@@ -184,18 +184,19 @@ impl<'sender> ExportBlockSender<'sender> {
     }
 }
 
-fn read_dir_sorted(path: &Path) -> Result<Vec<(u64, PathBuf)>> {
+// TODO: filter index file here or somewhere else
+fn read_dir_sorted(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {    
     let mut vec: Vec<(u64, PathBuf)> = try!(
-        read_dir(path)
+        read_dir(dir)
         .and_then(|list| list
             .map(|possible_entry| {
                 possible_entry.and_then(|entry| {
                     entry.path().metadata().map(move |stats| {
-                        (stats.modified(), path.to_owned())
+                        (stats.modified(), entry.path().to_owned())
                     })
                 })
             })
-            .collect::<Result<Vec<(u64, PathBuf)>>>()
+            .collect()
         )
     );
 
@@ -205,7 +206,7 @@ fn read_dir_sorted(path: &Path) -> Result<Vec<(u64, PathBuf)>> {
 }
 
 pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {
-    let mut compressor = BzCompressor::new(BufReader::new(clear_text), CompressionLevel::Smallest);
+    let mut compressor = BzCompressor::new(clear_text, Compress::Best);
     let mut buffer = Vec::new();
     
     try!(compressor.read_to_end(&mut buffer));
@@ -216,11 +217,11 @@ pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoR
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: PathBuf) -> Consumer<FileInstruction> {
-    let (mut transmitter, receiver) = new::<FileInstruction>(CHANNEL_BUFFER_SIZE);
+pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: PathBuf) -> Consumer<'static, FileInstruction> {
+    let (mut transmitter, receiver) = bounded::new(CHANNEL_BUFFER_SIZE);
     let new_database = database.clone();
 
-    Thread::spawn(move|| {
+    spawn(move|| {
         let result = ExportBlockSender::new(new_database, encryption_key, block_size, &mut transmitter)
                                        .and_then(|mut exporter| {
                                            exporter.export_directory(&source_path, Directory::Root)
@@ -239,9 +240,46 @@ pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, b
 
 #[cfg(test)]
 mod test {
-    use std::old_io::TempDir;
+    use std::fs::TempDir;
     use std::old_io::Timer;
+    use std::path::PathBuf;
     use std::time::Duration;
+    use super::super::write_to_disk;
+
+    #[test]
+    fn read_dir() {
+        let temp_dir = TempDir::new("readdir-test").unwrap();
+
+        {
+            let file_path = temp_dir.path().join("firstfile");
+            write_to_disk(&file_path, b"test123").unwrap();
+        }
+
+        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+
+        {
+            let file_path = temp_dir.path().join("second");
+            write_to_disk(&file_path, b"hello").unwrap();
+        }
+
+        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+
+        {
+            let file_path = temp_dir.path().join("third");
+            write_to_disk(&file_path, b"waddaa").unwrap();
+        }
+
+        let list = super::read_dir_sorted(temp_dir.path()).unwrap();
+
+        let filenames: Vec<String> = list
+            .into_iter()
+            .map(|(_, path)| {
+                path.file_name().unwrap().to_string_lossy().into_owned()
+            })
+            .collect();
+
+        assert_eq!(&["third", "second", "firstfile"], &filenames);
+    }
     
     #[test]
     fn channel_buffer() {
@@ -253,7 +291,7 @@ mod test {
             let content = format!("file{}", i);
             let file_path = temp_dir.path().join(content.as_slice());
 
-            super::super::write_to_disk(&file_path, content.as_bytes()).unwrap();
+            write_to_disk(&file_path, content.as_bytes()).unwrap();
         }
 
         let password = "password123";
@@ -261,13 +299,13 @@ mod test {
         let key = super::super::crypto::derive_key(password);
 
         super::super::init(
-            temp_dir.path().clone(),
-            temp_dir.path().clone(),
+            PathBuf::new(temp_dir.path()),
+            PathBuf::new(temp_dir.path()),
             password
         ).unwrap();
 
         let database = super::super::database::Database::from_file(database_path).unwrap();
-        let receiver = super::start_export_thread(&database, key, 10000000, temp_dir.path().clone());
+        let receiver = super::start_export_thread(&database, key, 10000000, PathBuf::new(temp_dir.path()));
 
         // give the export thread plenty of time to process all files
         Timer::new().unwrap().sleep(Duration::milliseconds(500));
@@ -279,11 +317,11 @@ mod test {
 
         let mut count = 0;
 
-        for msg in receiver.iter() {
+        while let Ok(msg) = receiver.recv_sync() {
             count += 1;
             
             match msg {
-                super::FileInstruction::Done => break,
+                super::FileInstruction::Done     => break,
                 super::FileInstruction::Error(e) => panic!("{:?}", e),
                 _ => {}
             }
