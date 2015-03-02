@@ -48,7 +48,7 @@ mod summary;
 mod file_chunks;
 mod error;
 
-static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
+pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 
 #[derive(Copy, Eq, PartialEq, Debug)]
 enum Directory {

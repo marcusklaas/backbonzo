@@ -92,24 +92,35 @@ impl<'sender> ExportBlockSender<'sender> {
         
         for &(last_modified, ref content_path) in content_list.iter() {
             if content_path.is_dir() {
-                let relative_path = try!(content_path.relative_from(path).ok_or(BonzoError::from_str("Could not get relative path")));
-                let name = try!(relative_path.to_str().ok_or(BonzoError::from_str("Cannot express directory name in UTF8")));
+                let relative_path = try!(
+                    content_path
+                        .relative_from(path)
+                        .ok_or(BonzoError::from_str("Could not get relative path"))
+                );
+                
+                let name = try!(
+                    relative_path
+                        .to_str()
+                        .ok_or(BonzoError::from_str("Cannot express directory name in UTF8"))
+                );
+                
                 let child_directory = try!(self.database.get_directory(directory, name));
             
                 try!(self.export_directory(content_path, child_directory));
             }
             else {
-                try!(
+                let filename = try!(
                     content_path
-                    .file_name()
-                    .and_then(|os_str| os_str.to_str())
-                    .ok_or(BonzoError::from_str("Could not convert filename to string"))
-                    .map(String::from_str)
-                    .and_then(|filename| {
-                        deleted_filenames.remove(&filename);
-                        self.export_file(directory, content_path, filename, last_modified)
-                    })
+                        .file_name()
+                        .and_then(|os_str| os_str.to_str())
+                        .ok_or(BonzoError::from_str("Could not convert filename to string"))
+                        .map(String::from_str)
                 );
+                
+                if directory == Directory::Root && filename != super::DATABASE_FILENAME {
+                    deleted_filenames.remove(&filename);
+                    try!(self.export_file(directory, content_path, filename, last_modified));
+                }
             }
         }
 
@@ -191,9 +202,12 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {
         .and_then(|list| list
             .map(|possible_entry| {
                 possible_entry.and_then(|entry| {
-                    entry.path().metadata().map(move |stats| {
-                        (stats.modified(), entry.path().to_owned())
-                    })
+                    let path = entry.path();
+                    
+                    path.metadata()
+                        .map(move |stats| {
+                            (stats.modified(), path.to_owned())
+                        })
                 })
             })
             .collect()
@@ -311,9 +325,9 @@ mod test {
         Timer::new().unwrap().sleep(Duration::milliseconds(500));
 
         // we should receive two messages for each file: one for its block and
-        // one for the file completion. the index also counts as a file
+        // one for the file completion.
         // One file one when done
-        let expected_message_count = 1 + 2 * (file_count + 1);
+        let expected_message_count = 1 + 2 * file_count;
 
         let mut count = 0;
 

@@ -16,7 +16,7 @@ use std::time::duration::Duration;
 use time::get_time;
 use std::path::{PathBuf, AsPath};
 
-fn open_read_append(path: &AsPath) -> io::Result<File> {
+fn open_read_write(path: &AsPath) -> io::Result<File> {
     OpenOptions::new().read(true).write(true).append(false).open(path)
 }
 
@@ -111,8 +111,8 @@ fn backup_and_restore() {
 
     assert!(create_dir_all(&source_path.join("test")).is_ok());
 
-    let filenames = ["test/welcome.txt", "welco.yolo", "smth_diffrent.jpg"];
-    let bytes = "71d6e2f35502c03743f676449c503f487de29988".as_bytes();
+    let filenames = ["welcome.txt", "welco.yolo", "smth_diffrent.jpg"];
+    let bytes = b"71d6e2f35502c03743f676449c503f487de29988";
 
     for filename in filenames.iter() {
         let file_path = source_path.join(filename);
@@ -163,7 +163,7 @@ fn backup_and_restore() {
     assert_eq!(bytes, buffer.as_slice());
 
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
-    assert!(restore_path.join("test/welcome.txt").exists());
+    assert!(restore_path.join("welcome.txt").exists());
 }
 
 fn epoch_milliseconds() -> u64 {
@@ -223,7 +223,7 @@ fn renames() {
 
         rename(&prev_path, &file_path).unwrap();
 
-        let mut file = open_read_append(&file_path).unwrap();
+        let mut file = open_read_write(&file_path).unwrap();
         file.write_all(second_message).unwrap();
         file.sync_all().unwrap();
         
@@ -295,7 +295,7 @@ fn renames() {
         assert!(second_path.exists());
         assert!(! first_path.exists());
 
-        let mut file = open_read_append(&second_path).unwrap();
+        let mut file = open_read_write(&second_path).unwrap();
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
@@ -323,7 +323,7 @@ fn renames() {
         assert!( ! second_path.exists());
         assert!(first_path.exists());
 
-        let mut file = open_read_append(&first_path).unwrap();
+        let mut file = open_read_write(&first_path).unwrap();
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
@@ -373,7 +373,7 @@ fn renames() {
         assert!(! second_path.exists());
         assert!(first_path.exists());
 
-        let mut file = open_read_append(&first_path).unwrap();
+        let mut file = open_read_write(&first_path).unwrap();
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
