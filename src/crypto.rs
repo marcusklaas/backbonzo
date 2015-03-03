@@ -52,7 +52,8 @@ pub fn hash_block(block: &[u8]) -> String {
 }
 
 // FIXME: we should still refactor this so it shares less code with decrypt_block
-pub fn encrypt_block(block: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Result<Vec<u8>, SymmetricCipherError> {
+pub fn encrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, SymmetricCipherError> {
+    let iv: [u8; 16] = [0; 16];
     let mut encryptor = cbc_encryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0; 4096];
@@ -70,7 +71,8 @@ pub fn encrypt_block(block: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Result<Vec<
 
 // Decrypts a given block of AES256-CBC data using a 32 byte key and 16 byte
 // initialization vector. Returns error on incorrect passwords 
-pub fn decrypt_block(block: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> Result<Vec<u8>, SymmetricCipherError> {    
+pub fn decrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, SymmetricCipherError> {    
+    let iv: [u8; 16] = [0; 16];
     let mut decryptor = cbc_decryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
     let mut final_result = Vec::<u8>::new();
     let mut buffer = [0; 4096];
@@ -96,17 +98,15 @@ mod test {
     fn aes_encryption_decryption() {
         let mut data: [u8; 100000] = [0; 100000];
         let mut key: [u8; 32] = [0; 32];
-        let mut iv: [u8; 16] = [0; 16];
         let mut rng = OsRng::new().ok().unwrap();
 
         rng.fill_bytes(&mut data);
         rng.fill_bytes(&mut key);
-        rng.fill_bytes(&mut iv);
     
         let index = rng.gen::<u32>() % 100000;
         let slice = &data[0..index as usize];
-        let encrypted_data = super::encrypt_block(slice, &key, &iv).ok().unwrap();
-        let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key, &iv).ok().unwrap();
+        let encrypted_data = super::encrypt_block(slice, &key).ok().unwrap();
+        let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key).ok().unwrap();
 
         assert!(slice == decrypted_data.as_slice());
     }
@@ -116,20 +116,14 @@ mod test {
         let message = "hello, world!";
         let key = [0u8; 32];
         let bad_key = [1u8; 32];
-        let iv = [0u8; 16];
-        let bad_iv = [3u8; 16];
 
-        let encrypted_data = super::encrypt_block(message.as_bytes(), &key, &iv).ok().unwrap();
+        let encrypted_data = super::encrypt_block(message.as_bytes(), &key).ok().unwrap();
         
-        let bad_decrypt = super::decrypt_block(encrypted_data.as_slice(), &bad_key, &iv);
-        let good_decrypt = super::decrypt_block(encrypted_data.as_slice(), &key, &iv);
+        let bad_decrypt = super::decrypt_block(encrypted_data.as_slice(), &bad_key);
+        let good_decrypt = super::decrypt_block(encrypted_data.as_slice(), &key);
 
         assert!(bad_decrypt.is_err());
         assert!(good_decrypt.is_ok());
-
-        let bad_iv_decrypt = super::decrypt_block(encrypted_data.as_slice(), &key, &bad_iv);
-
-        assert!(bad_iv_decrypt.ok().unwrap().as_slice() != message.as_bytes());
     }
 
     #[test]

@@ -7,7 +7,6 @@ use std::iter::IteratorExt;
 
 use bzip2::{Compress};
 use bzip2::reader::BzCompressor;
-use super::rand::{Rng, ThreadRng, thread_rng};
 
 use Directory;
 use super::error::{BonzoResult, BonzoError};
@@ -37,7 +36,6 @@ pub enum FileInstruction {
 // to the index
 pub struct FileBlock {
     pub bytes: Vec<u8>,
-    pub iv: Box<[u8; 16]>,
     pub hash: String,
     pub source_byte_count: u64
 }
@@ -68,8 +66,7 @@ pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Box<[u8; 32]>,
     block_size: usize,
-    sender: &'sender mut Producer<'static, FileInstruction>,
-    rng: ThreadRng
+    sender: &'sender mut Producer<'static, FileInstruction>
 }
 
 impl<'sender> ExportBlockSender<'sender> {
@@ -78,8 +75,7 @@ impl<'sender> ExportBlockSender<'sender> {
             database: database,
             encryption_key: encryption_key,
             block_size: block_size,
-            sender: sender,
-            rng: thread_rng()
+            sender: sender
         })
     }
 
@@ -169,14 +165,10 @@ impl<'sender> ExportBlockSender<'sender> {
             return Ok(BlockReference::ById(id))
         }
 
-        let mut iv = Box::new([0u8; 16]);
-        self.rng.fill_bytes(iv.as_mut_slice());
-
-        let processed_bytes = try!(process_block(block, &*self.encryption_key, &*iv));
+        let processed_bytes = try!(process_block(block, &*self.encryption_key));
 
         try!(self.sender.send_sync(FileInstruction::NewBlock(FileBlock {
             bytes: processed_bytes,
-            iv: iv,
             hash: hash.clone(),
             source_byte_count: block.len() as u64
         })).map_err(|_| BonzoError::from_str("Failed sending block")));
@@ -208,11 +200,11 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {
     Ok(vec)
 }
 
-pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {    
+pub fn process_block(clear_text: &[u8], key: &[u8; 32]) -> BonzoResult<Vec<u8>> {    
     let mut compressor = BzCompressor::new(clear_text, Compress::Best);
     let mut buffer = Vec::new();    
     try!(compressor.read_to_end(&mut buffer));
-    Ok(try!(crypto::encrypt_block(buffer.as_slice(), key, iv)))
+    Ok(try!(crypto::encrypt_block(buffer.as_slice(), key)))
 }
 
 // Starts a new thread in which the given source path is recursively walked

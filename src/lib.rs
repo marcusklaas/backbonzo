@@ -149,9 +149,9 @@ impl BackupManager {
         let mut file = try!(File::create(path));
 
         for block_id in block_list.iter() {
-            let (hash, iv) = try!(self.database.block_from_id(*block_id));
+            let hash = try!(self.database.block_from_id(*block_id));
             let block_path = block_output_path(&self.backup_path, hash.as_slice());
-            let bytes = try!(load_processed_block(&block_path, &*self.encryption_key, &*iv));
+            let bytes = try!(load_processed_block(&block_path, &*self.encryption_key));
             let byte_slice = bytes.as_slice();
 
             summary.add_block(byte_slice);
@@ -178,7 +178,7 @@ impl BackupManager {
         try!(create_dir_all(path.parent().unwrap())
             .and(write_to_disk(&path, byte_slice)));
 
-        try!(self.database.persist_block(block.hash.as_slice(), &*block.iv));
+        try!(self.database.persist_block(block.hash.as_slice()));
 
         summary.add_block(byte_slice, block.source_byte_count);
 
@@ -240,7 +240,7 @@ impl BackupManager {
     // encrypted form
     fn export_index(self) -> BonzoResult<()> {
         let bytes = try!(self.database.to_bytes());
-        let procesed_bytes = try!(process_block(bytes.as_slice(), &*self.encryption_key, &[0u8; 16]));
+        let procesed_bytes = try!(process_block(bytes.as_slice(), &*self.encryption_key));
         let new_index = self.backup_path.join("index-new");
         let index = self.backup_path.join("index");
         
@@ -309,21 +309,21 @@ pub fn epoch_milliseconds() -> u64 {
 
 fn decrypt_index(backup_path: &Path, temp_dir: &Path, key: &[u8; 32]) -> BonzoResult<PathBuf> {
     let decrypted_index_path = temp_dir.join(DATABASE_FILENAME);
-    let bytes = try!(load_processed_block(&backup_path.join("index"), key, &[0u8; 16]));
+    let bytes = try!(load_processed_block(&backup_path.join("index"), key));
 
     try!(write_to_disk(&decrypted_index_path, bytes.as_slice()));
 
     Ok(decrypted_index_path)
 }
 
-fn load_processed_block(path: &Path, key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {
+fn load_processed_block(path: &Path, key: &[u8; 32]) -> BonzoResult<Vec<u8>> {
     let contents: Vec<u8> = try!(File::open(path).and_then(|mut file| {
         let mut buffer = Vec::new();
         try!(file.read_to_end(&mut buffer));
         Ok(buffer)
     }));
     
-    let decrypted_bytes = try!(crypto::decrypt_block(contents.as_slice(), key, iv));
+    let decrypted_bytes = try!(crypto::decrypt_block(contents.as_slice(), key));
     let mut decompressor = BzDecompressor::new(BufReader::new(decrypted_bytes.as_slice()));
     
     let mut buffer = Vec::new();
@@ -361,19 +361,17 @@ mod test {
         let file_path = dir.path().join("hash.txt");
 
         let mut key: [u8; 32] = [0; 32];
-        let mut iv: [u8; 16] = [0; 16];
         let mut rng = OsRng::new().ok().unwrap();
         
         rng.fill_bytes(&mut key);
-        rng.fill_bytes(&mut iv);
 
-        let processed_bytes = super::export::process_block(bytes, &key, &iv).unwrap();
+        let processed_bytes = super::export::process_block(bytes, &key).unwrap();
         
         let mut file = File::create(&file_path).unwrap();
         assert!(file.write_all(processed_bytes.as_slice()).is_ok());
         assert!(file.sync_all().is_ok());
 
-        let retrieved_bytes = super::load_processed_block(&file_path, &key, &iv).unwrap();
+        let retrieved_bytes = super::load_processed_block(&file_path, &key).unwrap();
 
         assert_eq!(bytes.as_slice(), retrieved_bytes.as_slice());
     }

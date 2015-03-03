@@ -4,7 +4,6 @@ extern crate "libsqlite3-sys" as libsqlite;
 
 use super::{epoch_milliseconds, Directory};
 use super::error::{BonzoResult, BonzoError};
-use super::rustc_serialize::hex::{ToHex, FromHex};
 use super::iter_reduce::{Reduce, IteratorReduce};
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
@@ -243,10 +242,10 @@ impl Database {
         self.persist_alias(directory, None, filename, None)
     }
 
-    pub fn persist_block(&self, hash: &str, iv: &[u8; 16]) -> SqliteResult<u32> {
+    pub fn persist_block(&self, hash: &str) -> SqliteResult<u32> {
         try!(self.connection.execute(
-            "INSERT INTO block (hash, iv_hex) VALUES ($1, $2);",
-            &[&hash, &iv.to_hex().as_slice()]
+            "INSERT INTO block (hash) VALUES ($1);",
+            &[&hash]
         ));
 
         Ok(self.connection.last_insert_rowid() as u32)
@@ -270,27 +269,13 @@ impl Database {
         )
     }
 
-    // Fetches the block hash and iv
-    pub fn block_from_id(&self, id: u32) -> BonzoResult<(String, Box<[u8; 16]>)> {
-        let (hash, iv_hex) = try!(self.connection.query_row_safe(
-            "SELECT hash, iv_hex FROM block WHERE id = $1;",
+    // Fetches the block hash
+    pub fn block_from_id(&self, id: u32) -> SqliteResult<String> {
+        self.connection.query_row_safe(
+            "SELECT hash FROM block WHERE id = $1;",
             &[&(id as i64)],
-            |row| (row.get::<String>(0), row.get::<String>(1))
-        ));
-
-        match iv_hex.as_slice().from_hex() {
-            Err(..)                      => Err(BonzoError::Other(format!("Couldn't parse hex: {}", iv_hex))),
-            Ok(ref iv) if iv.len() != 16 => Err(BonzoError::Other(format!("Unexpected iv length from hex: {}", iv_hex))),
-            Ok(iv)  => {
-                let mut boxed_iv = Box::new([0u8; 16]);
-                
-                for i in 0..16usize {
-                    boxed_iv[i] = iv[i];
-                }
-                
-                Ok((hash, boxed_iv))
-            }
-        }
+            |row| row.get::<String>(0)
+        )
     }
 
     pub fn block_id_from_hash(&self, hash: &str) -> SqliteResult<Option<u32>> {
@@ -365,7 +350,6 @@ impl Database {
             "CREATE TABLE block (
                 id           INTEGER PRIMARY KEY,
                 hash         TEXT NOT NULL,
-                iv_hex       TEXT NOT NULL,
                 UNIQUE(hash)
             );",
             "CREATE INDEX block_hash_index ON block (hash)",
