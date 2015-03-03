@@ -23,13 +23,17 @@ installation
 * `$ cargo build --release`
 * `$ sudo cp target/release/backbonzo /usr/local/bin/backbonzo`
 
+usage
+-----
+There are three modes of operation: init, backup and restore. The init operation creates a hidden file in the source directory containing meta data. This file keeps track of the state of your backup. TBC
+
 security concerns
 -----------------
 backbonzo relies on the very awesome [rust-crypto](https://github.com/dagenix/rust-crypto/) crate for its cryptography primitives. It provides no guarantees for correctness or absence of vulnerabilities. But that is the least of our concerns right now. The project is in great shape, with high quality code base and a decent test suite.
 
 The backbonzo currently leaks information on your data. Because backbonzo splits every file into blocks of fixed size without padding, any one with access to your encrypted data can fairly easily get a good idea of the number of distinct files in your data. Since it is unlikely that the number of bytes in a file is an multiple of the block size, the number of encrypted blocks which are smaller than the largest encrypted block is a fair estimator for the number of files. This is a very serious issue. The average file size of your backup reveals a lot about your data. It could tell you are storing mostly videos, images or small log files.
 
-Soon, backbonzo will implement compression on a per-block basis. This means that before the data in a given block is encrypted, it is run through a compression algorithm such as zlib or lzma. As a result, it may be very slightly more difficult to determine the number of files. On the other hand, this change will cause backbonzo to leak information on the compressibility of your data, which is even more telling of the data's nature.
+backbonzo implements compression on a per-block basis. This means that before the data in a given block is encrypted, it is run through a compression algorithm such as zlib or lzma. As a result, it may be very slightly more difficult to determine the number of files. On the other hand, this causes backbonzo to leak information on the compressibility of your data, which is even more telling of the data's nature.
 
 What's worse is that the encrypted index file (metadata) is copied along with the actual data. An attacker could fairly easily use the size of this file to gain extra information. The way the index file is populated is very structured and predictable. The size of the index file could be combined with knowledge of the number of files to construct estimators for the number of directories, for example.
 
