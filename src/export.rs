@@ -5,7 +5,7 @@ use std::fs::{read_dir, PathExt};
 use std::borrow::ToOwned;
 use std::iter::IteratorExt;
 
-use bzip2::Compress;
+use bzip2::{Compress};
 use bzip2::reader::BzCompressor;
 use super::rand::{Rng, ThreadRng, thread_rng};
 
@@ -67,13 +67,13 @@ pub struct FileComplete {
 pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Box<[u8; 32]>,
-    block_size: u32,
+    block_size: usize,
     sender: &'sender mut Producer<'static, FileInstruction>,
     rng: ThreadRng
 }
 
 impl<'sender> ExportBlockSender<'sender> {
-    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: u32, sender: &'sender mut Producer<'static, FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
+    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: usize, sender: &'sender mut Producer<'static, FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
         Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
@@ -91,33 +91,22 @@ impl<'sender> ExportBlockSender<'sender> {
         let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
         
         for &(last_modified, ref content_path) in content_list.iter() {
+            let filename = try!(
+                content_path
+                    .file_name()
+                    .and_then(|os_str| os_str.to_str())
+                    .ok_or(BonzoError::from_str("Could not convert filename to string"))
+                    .map(String::from_str)
+            );
+            
             if content_path.is_dir() {
-                let relative_path = try!(
-                    content_path
-                        .relative_from(path)
-                        .ok_or(BonzoError::from_str("Could not get relative path"))
-                );
-                
-                let name = try!(
-                    relative_path
-                        .to_str()
-                        .ok_or(BonzoError::from_str("Cannot express directory name in UTF8"))
-                );
-                
-                let child_directory = try!(self.database.get_directory(directory, name));
+                let child_directory = try!(self.database.get_directory(directory, &filename));
             
                 try!(self.export_directory(content_path, child_directory));
             }
             else {
-                let filename = try!(
-                    content_path
-                        .file_name()
-                        .and_then(|os_str| os_str.to_str())
-                        .ok_or(BonzoError::from_str("Could not convert filename to string"))
-                        .map(String::from_str)
-                );
-                
-                if directory == Directory::Root && filename != super::DATABASE_FILENAME {
+                // FIXME: don't String::from_str if filename is dir
+                if directory != Directory::Root || filename != super::DATABASE_FILENAME {
                     deleted_filenames.remove(&filename);
                     try!(self.export_file(directory, content_path, filename, last_modified));
                 }
@@ -140,7 +129,7 @@ impl<'sender> ExportBlockSender<'sender> {
     // sent over the channel. When all blocks are transmitted, a FileComplete
     // message is sent, so the receiver can persist the file to the
     // database. 
-    fn export_file(&mut self, directory: Directory, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {
+    fn export_file(&mut self, directory: Directory, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {        
         if try!(self.database.alias_known(directory, filename.as_slice(), last_modified)) {           
             return Ok(());
         }
@@ -153,7 +142,8 @@ impl<'sender> ExportBlockSender<'sender> {
         
         let mut chunks = try!(Chunks::from_path(path, self.block_size));
         let mut block_reference_list = Vec::new();
-        
+
+        // TODO: we can make this into a map, just have to implement it on chunks
         while let Some(slice) = chunks.next() {
             block_reference_list.push(try!(self.export_block(slice)));
         }
@@ -195,7 +185,6 @@ impl<'sender> ExportBlockSender<'sender> {
     }
 }
 
-// TODO: filter index file here or somewhere else
 fn read_dir_sorted(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {    
     let mut vec: Vec<(u64, PathBuf)> = try!(
         read_dir(dir)
@@ -219,19 +208,17 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {
     Ok(vec)
 }
 
-pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {
+pub fn process_block(clear_text: &[u8], key: &[u8; 32], iv: &[u8; 16]) -> BonzoResult<Vec<u8>> {    
     let mut compressor = BzCompressor::new(clear_text, Compress::Best);
-    let mut buffer = Vec::new();
-    
+    let mut buffer = Vec::new();    
     try!(compressor.read_to_end(&mut buffer));
-        
     Ok(try!(crypto::encrypt_block(buffer.as_slice(), key, iv)))
 }
 
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: u32, source_path: PathBuf) -> Consumer<'static, FileInstruction> {
+pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: usize, source_path: PathBuf) -> Consumer<'static, FileInstruction> {
     let (mut transmitter, receiver) = bounded::new(CHANNEL_BUFFER_SIZE);
     let new_database = database.clone();
 

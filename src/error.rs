@@ -40,7 +40,7 @@ impl fmt::Debug for BonzoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BonzoError::Database(ref e) => write!(f, "Database error: {}", e.message),
-            BonzoError::Io(ref e)       => write!(f, "IO error: {}, {}", e.description(), e.detail().clone().unwrap_or_default()),
+            BonzoError::Io(ref e)       => write!(f, "IO error ({:?}): {}, {}", e.kind(), e.description(), e.detail().clone().unwrap_or_default()),
             BonzoError::Crypto(..)      => write!(f, "Crypto error!"),
             BonzoError::Other(ref str)  => write!(f, "Error: {}", str)
         }

@@ -4,13 +4,15 @@
 #![feature(fs)]
 #![feature(tempdir)]
 #![feature(io)]
-#![feature(old_io)]
 #![feature(std_misc)]
 #![feature(core)]
 #![feature(path)]
 #![feature(plugin)]
 
 #![plugin(regex_macros)]
+
+// FIXME: for tests only
+#![feature(old_io)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate time;
@@ -49,6 +51,8 @@ mod file_chunks;
 mod error;
 
 pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
+
+// TODO: use .to_path_buf on paths, where applicable instead of PathBuf::new(path)
 
 #[derive(Copy, Eq, PartialEq, Debug)]
 enum Directory {
@@ -93,7 +97,7 @@ impl BackupManager {
     // Update the state of the backup. Starts a walker thread and listens
     // to its messages. Exits after the time has surpassed the deadline, even
     // when the update hasn't been fully completed
-    pub fn update(&mut self, block_bytes: u32, deadline: time::Tm) -> BonzoResult<BackupSummary> {
+    pub fn update(&mut self, block_bytes: usize, deadline: time::Tm) -> BonzoResult<BackupSummary> {
         let channel_receiver = export::start_export_thread(
             &self.database,
             self.encryption_key.clone(),
@@ -278,7 +282,7 @@ fn decode_path(path: &AsOsStr) -> PathBuf {
     PathBuf::new(path)
 }
 
-pub fn backup(source_path: PathBuf, block_bytes: u32, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
+pub fn backup(source_path: PathBuf, block_bytes: usize, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let mut manager = try!(BackupManager::new(database_path, source_path, crypto::derive_key(password)));
     let summary = try!(manager.update(block_bytes, deadline));

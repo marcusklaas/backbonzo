@@ -1,6 +1,5 @@
 use std::io::{Read, Result};
 use std::fs::File;
-use std::mem::forget;
 use std::path::Path;
 
 // Semi-iterator which reads a file one block at a time. Is not a proper
@@ -11,18 +10,10 @@ pub struct Chunks {
 }
 
 impl Chunks {
-    pub fn from_path(path: &Path, block_size: u32) -> Result<Chunks> {
-        let machine_block_size = block_size as usize;
-        let mut vec = Vec::with_capacity(machine_block_size);
-        let pointer = vec.as_mut_ptr();
-        
+    pub fn from_path(path: &Path, block_size: usize) -> Result<Chunks> {
         Ok(Chunks {
             file: try!(File::open(path)),
-            buffer: unsafe {
-                forget(vec);
-                
-                Vec::from_raw_parts(pointer, machine_block_size, machine_block_size)
-            }
+            buffer: vec![0; block_size]
         })
     }
     

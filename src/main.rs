@@ -62,7 +62,7 @@ fn main() {
                             .unwrap_or_else(|e| e.exit());
     let source_path = PathBuf::new(&args.flag_source);
     let backup_path = PathBuf::new(&args.flag_destination);
-    let block_bytes = 1000 * args.flag_blocksize;
+    let block_bytes = 1000 * (args.flag_blocksize as usize);
     let deadline = time::now() + match args.flag_timeout {
         0    => Duration::weeks(52),
         secs => Duration::seconds(secs as i64)

@@ -8,21 +8,25 @@ authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 name = "backbonzo"
 
 [dependencies]
-docopt = "*"
+#docopt = "*"
 time = "*"
 glob = "*"
 rustc-serialize = "*"
 rusqlite = "*"
 libsqlite3-sys = "*"
 rust-crypto = "*"
-bzip2 = "*"
+#bzip2 = "*"
 rand = "*"
+regex = "*"
+regex_macros = "*"
 
-[dependencies.regex]
-git = "https://github.com/rust-lang/regex.git"
+[dependencies.bzip2]
+git = "https://github.com/marcusklaas/bzip2-rs.git"
+rev = "77097"
 
-[dependencies.regex_macros]
-git = "https://github.com/rust-lang/regex.git"
+[dependencies.docopt]
+git = "https://github.com/Hoverbear/docopt.rs"
+rev = "f48e777f2a20840fa3e"
 
 [dependencies.comm]
 git = "https://github.com/mahkoh/comm"
