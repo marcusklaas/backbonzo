@@ -52,8 +52,6 @@ mod error;
 
 pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 
-// TODO: use .to_path_buf on paths, where applicable instead of PathBuf::new(path)
-
 #[derive(Copy, Eq, PartialEq, Debug)]
 enum Directory {
     Root,
@@ -144,7 +142,7 @@ impl BackupManager {
     // Restores a single file by decrypting and inflating a sequence of blocks
     // and writing them to the given path in order
     pub fn restore_file(&self, path: &Path, block_list: &[u32], summary: &mut RestorationSummary) -> BonzoResult<()> {
-        try!(create_dir_all(path.parent().unwrap()));
+        try!(create_parent_dir(path));
         
         let mut file = try!(File::create(path));
 
@@ -175,9 +173,8 @@ impl BackupManager {
         let path = block_output_path(&self.backup_path, block.hash.as_slice());
         let byte_slice = block.bytes.as_slice();
 
-        try!(create_dir_all(path.parent().unwrap())
-            .and(write_to_disk(&path, byte_slice)));
-
+        try!(create_parent_dir(path));
+        try!(write_to_disk(&path, byte_slice));
         try!(self.database.persist_block(block.hash.as_slice()));
 
         summary.add_block(byte_slice, block.source_byte_count);
@@ -264,6 +261,12 @@ pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> Bonzo
     try!(database.set_key("backup_path", encoded_backup_path.as_slice()));
 
     Ok(())
+}
+
+fn create_parent_dir(path: &Path) -> BonzoResult<()> {
+    let parent = try!(path.parent().ok_or(BonzoError::from_str("Couldn't get parent directory")));
+
+    try!(create_dir_all(parent))
 }
 
 // Takes a path, turns it into an absolute path if necessary

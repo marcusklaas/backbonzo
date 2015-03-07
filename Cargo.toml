@@ -26,6 +26,9 @@ rev = "77097"
 git = "https://github.com/Hoverbear/docopt.rs"
 rev = "f48e777f2a20840fa3e"
 
+[dependencies.number_prefix]
+git = "https://github.com/ogham/rust-number-prefix.git"
+
 [dependencies.comm]
 git = "https://github.com/mahkoh/comm"
 

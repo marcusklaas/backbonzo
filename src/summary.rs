@@ -1,7 +1,17 @@
+extern crate number_prefix;
+use number_prefix::{decimal_prefix, Standalone, Prefixed};
+
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::time::duration::Duration;
 use super::time;
+
+fn format_bytes(bytes: u64) -> String {
+    match decimal_prefix(bytes as f64) {
+        Standalone(bytes)   => format!("{} bytes", bytes),
+        Prefixed(prefix, n) => format!("{:.0} {}B", n, prefix),
+    }
+}
 
 struct Summary {
     bytes:  u64,
@@ -64,11 +74,12 @@ impl DerefMut for RestorationSummary {
 impl fmt::Debug for RestorationSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seconds_passed = self.duration().num_seconds();
+        let byte_desc = format_bytes(self.bytes);
         
         write!(
             f,
-            "Restored {} bytes to {} files, from {} blocks in {} seconds",
-            self.bytes,
+            "Restored {} to {} files, from {} blocks in {} seconds",
+            byte_desc,
             self.files,
             self.blocks,
             seconds_passed
@@ -106,13 +117,14 @@ impl fmt::Debug for BackupSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seconds_passed = self.summary.duration().num_seconds();
         let compression_ratio = (self.summary.bytes as f64) / (self.source_bytes as f64);
+        let byte_desc = format_bytes(self.bytes);
                 
         write!(
             f,
-            "Backed up {} files, into {} blocks containing {} bytes, in {} seconds. Compression ratio: {}",
+            "Backed up {} files, into {} blocks containing {}, in {} seconds. Compression ratio: {}",
             self.summary.files,
             self.summary.blocks,
-            self.summary.bytes,
+            byte_desc,
             seconds_passed,
             compression_ratio
         )

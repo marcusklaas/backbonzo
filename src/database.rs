@@ -320,6 +320,32 @@ impl Database {
         )
     }
 
+    pub fn remove_old_aliases(&self, timestamp: u64) -> SqliteResult<()> {
+        self.connection.execute(
+            "DELETE FROM alias
+             WHERE timestamp < $1
+               AND id NOT IN (SELECT MAX(id) FROM alias GROUP BY name, directory_id);",
+            &[&(timestamp as i64)]
+        )
+    }
+
+    pub fn get_unused_blocks(&self) -> SqliteResult<Vec<u32>> {
+        self.query_and_collect(
+            "SELECT id FROM block
+             EXCEPT
+             SELECT block_id FROM fileblock;",
+            &[],
+            |row| row.get(0) as u32
+        )
+    }
+
+    pub fn remove_block(&self, id: u32) -> SqliteResult<()> {
+        self.connection.execute(
+            "DELETE FROM block WHERE id = $1;",
+            &[&(id as i64)]
+        )
+    }
+
     pub fn setup(&self) -> SqliteResult<()> {
         [
             "CREATE TABLE directory (
