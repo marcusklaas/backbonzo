@@ -326,7 +326,7 @@ impl Database {
              WHERE timestamp < $1
                AND id NOT IN (SELECT MAX(id) FROM alias GROUP BY name, directory_id);",
             &[&(timestamp as i64)]
-        )
+        ).map(|_| ())
     }
 
     pub fn get_unused_blocks(&self) -> SqliteResult<Vec<u32>> {
@@ -335,7 +335,7 @@ impl Database {
              EXCEPT
              SELECT block_id FROM fileblock;",
             &[],
-            |row| row.get(0) as u32
+            |row| (row.get::<i32>(0) as u32)
         )
     }
 
@@ -343,7 +343,7 @@ impl Database {
         self.connection.execute(
             "DELETE FROM block WHERE id = $1;",
             &[&(id as i64)]
-        )
+        ).map(|_| ())
     }
 
     pub fn setup(&self) -> SqliteResult<()> {

@@ -13,18 +13,19 @@ glob = "*"
 rustc-serialize = "*"
 rusqlite = "*"
 libsqlite3-sys = "*"
-rust-crypto = "*"
+#rust-crypto = "*"
 rand = "*"
 regex = "*"
 regex_macros = "*"
+docopt = "*"
+tempdir = "*"
+
+[dependencies.rust-crypto]
+git = "https://github.com/marcusklaas/rust-crypto.git"
+rev = "20f6877a05"
 
 [dependencies.bzip2]
-git = "https://github.com/marcusklaas/bzip2-rs.git"
-rev = "77097"
-
-[dependencies.docopt]
-git = "https://github.com/Hoverbear/docopt.rs"
-rev = "f48e777f2a20840fa3e"
+git = "https://github.com/alexcrichton/bzip2-rs.git"
 
 [dependencies.number_prefix]
 git = "https://github.com/ogham/rust-number-prefix.git"

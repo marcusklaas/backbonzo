@@ -1,5 +1,6 @@
 extern crate number_prefix;
-use number_prefix::{decimal_prefix, Standalone, Prefixed};
+
+use self::number_prefix::{decimal_prefix, Standalone, Prefixed};
 
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -13,7 +14,7 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-struct Summary {
+pub struct Summary {
     bytes:  u64,
     blocks: u64,
     files:  u64,
@@ -117,7 +118,7 @@ impl fmt::Debug for BackupSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seconds_passed = self.summary.duration().num_seconds();
         let compression_ratio = (self.summary.bytes as f64) / (self.source_bytes as f64);
-        let byte_desc = format_bytes(self.bytes);
+        let byte_desc = format_bytes(self.summary.bytes);
                 
         write!(
             f,

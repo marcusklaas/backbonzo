@@ -1,8 +1,6 @@
 #![feature(collections)]
 #![feature(libc)]
-#![feature(os)]
-#![feature(fs)]
-#![feature(tempdir)]
+#![feature(path_ext)]
 #![feature(io)]
 #![feature(std_misc)]
 #![feature(core)]
@@ -10,9 +8,6 @@
 #![feature(plugin)]
 
 #![plugin(regex_macros)]
-
-// FIXME: for tests only
-#![feature(old_io)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 extern crate time;
@@ -22,16 +17,18 @@ extern crate "crypto" as rust_crypto;
 extern crate comm;
 extern crate "iter-reduce" as iter_reduce;
 extern crate rand;
+extern crate tempdir;
 
 #[cfg(test)]
 extern crate regex;
 
 use std::io::{self, Read, Write, BufReader};
-use std::fs::{TempDir, remove_file, copy, File, create_dir_all};
+use std::fs::{remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
 use std::ffi::AsOsStr;
 use std::env::current_dir;
 
+use tempdir::TempDir;
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use iter_reduce::{Reduce, IteratorReduce};
@@ -173,7 +170,7 @@ impl BackupManager {
         let path = block_output_path(&self.backup_path, block.hash.as_slice());
         let byte_slice = block.bytes.as_slice();
 
-        try!(create_parent_dir(path));
+        try!(create_parent_dir(&path));
         try!(write_to_disk(&path, byte_slice));
         try!(self.database.persist_block(block.hash.as_slice()));
 
@@ -266,7 +263,7 @@ pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> Bonzo
 fn create_parent_dir(path: &Path) -> BonzoResult<()> {
     let parent = try!(path.parent().ok_or(BonzoError::from_str("Couldn't get parent directory")));
 
-    try!(create_dir_all(parent))
+    Ok(try!(create_dir_all(parent)))
 }
 
 // Takes a path, turns it into an absolute path if necessary
