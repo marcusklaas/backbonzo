@@ -31,7 +31,9 @@ impl Chunks {
 #[cfg(test)]
 mod test {
     use std::io::Write;
-    use std::fs::{TempDir, File};
+    use std::fs::File;
+
+    use super::super::tempdir::TempDir;
     
     #[test]
     fn chunks() {

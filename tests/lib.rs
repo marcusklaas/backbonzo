@@ -3,18 +3,19 @@
 #![feature(std_misc)]
 #![feature(core)]
 #![feature(path)]
-#![feature(tempdir)]
-#![feature(fs)]
+#![feature(path_ext)]
 
 extern crate backbonzo;
 extern crate time;
+extern crate tempdir;
 
 use backbonzo::BonzoError;
 use std::io::{Read, Write, self};
-use std::fs::{File, PathExt, create_dir_all, rename, remove_file, TempDir, OpenOptions};
+use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions};
 use std::time::duration::Duration;
 use time::get_time;
 use std::path::{PathBuf, AsPath};
+use tempdir::TempDir;
 
 fn open_read_write(path: &AsPath) -> io::Result<File> {
     OpenOptions::new().read(true).write(true).append(false).open(path)

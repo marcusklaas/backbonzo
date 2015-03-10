@@ -233,10 +233,11 @@ pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, b
 
 #[cfg(test)]
 mod test {
-    use std::fs::TempDir;
     use std::old_io::Timer;
     use std::path::PathBuf;
     use std::time::Duration;
+
+    use super::super::tempdir::TempDir;
     use super::super::write_to_disk;
 
     #[test]

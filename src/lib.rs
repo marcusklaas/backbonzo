@@ -6,6 +6,7 @@
 #![feature(core)]
 #![feature(path)]
 #![feature(plugin)]
+#![feature(fs_time)]
 
 #![plugin(regex_macros)]
 
@@ -48,6 +49,7 @@ mod file_chunks;
 mod error;
 
 pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
+pub static MAX_ALIAS_AGE: u64 = 183 * 24 * 60 * 60 * 1000; // TODO: this should be a parameter
 
 #[derive(Copy, Eq, PartialEq, Debug)]
 enum Directory {
@@ -230,6 +232,29 @@ impl BackupManager {
         }
     }
 
+    // Remove old aliases and unused blocks from database and disk
+    fn cleanup(&self, max_age_milliseconds: u64) -> BonzoResult<()> {
+        let now = epoch_milliseconds();
+
+        let timestamp = match now < max_age_milliseconds {
+            true  => 0,
+            false => now - max_age_milliseconds
+        };
+        
+        try!(self.database.remove_old_aliases(timestamp));
+        
+        let unused_block_list = try!(self.database.get_unused_blocks());
+
+        for (id, hash) in unused_block_list {
+            let path = block_output_path(&self.backup_path, &hash);
+
+            try!(remove_file(&path));
+            try!(self.database.remove_block(id));
+        }
+        
+        Ok(())
+    }
+
     // Closes the database connection and saves it to the backup destination in
     // encrypted form
     fn export_index(self) -> BonzoResult<()> {
@@ -287,6 +312,7 @@ pub fn backup(source_path: PathBuf, block_bytes: usize, password: &str, deadline
     let mut manager = try!(BackupManager::new(database_path, source_path, crypto::derive_key(password)));
     let summary = try!(manager.update(block_bytes, deadline));
 
+    try!(manager.cleanup(MAX_ALIAS_AGE));
     try!(manager.export_index());
 
     Ok(summary)
@@ -349,7 +375,9 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod test {
     use std::io::{Read, Write, BufReader};
-    use std::fs::{TempDir, File};
+    use std::fs::File;
+
+    use super::tempdir::TempDir;
     use super::rand::{Rng, OsRng};
     use super::bzip2::reader::{BzDecompressor, BzCompressor};
     use super::bzip2::Compress;
