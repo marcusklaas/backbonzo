@@ -7,7 +7,7 @@ use super::rust_crypto::pbkdf2::pbkdf2;
 use super::rust_crypto::hmac::Hmac;
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
 
-use super::file_chunks::Chunks;
+use super::file_chunks::file_chunks;
 use std::path::Path;
 use std::io;
 
@@ -33,11 +33,13 @@ pub fn derive_key(password: &str) -> Box<[u8; 32]> {
 
 // Returns the SHA256 hash of a file in hex encoding
 pub fn hash_file(path: &Path) -> io::Result<String> {
-    let mut chunks = try!(Chunks::from_path(path, 1024));
+    let mut chunks = try!(file_chunks(path, 1024));
     let mut hasher = Sha256::new();
     
     while let Some(slice) = chunks.next() {
-        hasher.input(slice);
+        let unwrapped_slice = try!(slice);
+        
+        hasher.input(unwrapped_slice);
     }
     
     Ok(hasher.result_str())

@@ -12,7 +12,7 @@ use Directory;
 use super::error::{BonzoResult, BonzoError};
 use super::database::Database;
 use super::crypto;
-use super::file_chunks::Chunks;
+use super::file_chunks::file_chunks;
 use super::comm::spsc::bounded::{self, Producer, Consumer};
 use super::iter_reduce::{Reduce, IteratorReduce};
 
@@ -136,12 +136,15 @@ impl<'sender> ExportBlockSender<'sender> {
             return Ok(try!(self.database.persist_alias(directory, Some(file_id), filename.as_slice(), Some(last_modified))));
         }
         
-        let mut chunks = try!(Chunks::from_path(path, self.block_size));
+        let mut chunks = try!(file_chunks(path, self.block_size));
         let mut block_reference_list = Vec::new();
 
         // TODO: we can make this into a map, just have to implement it on chunks
         while let Some(slice) = chunks.next() {
-            block_reference_list.push(try!(self.export_block(slice)));
+            let unwrapped_slice = try!(slice);
+            let block_reference = try!(self.export_block(unwrapped_slice));
+            
+            block_reference_list.push(block_reference);
         }
         
         try!(self.sender.send_sync(FileInstruction::Complete(FileComplete {
@@ -279,7 +282,7 @@ mod test {
     fn channel_buffer() {
         let temp_dir = TempDir::new("buffer-test").unwrap();
 
-        let file_count = 10 * super::CHANNEL_BUFFER_SIZE;
+        let file_count = 3 * super::CHANNEL_BUFFER_SIZE;
 
         for i in range(0, file_count) {
             let content = format!("file{}", i);
@@ -302,7 +305,7 @@ mod test {
         let receiver = super::start_export_thread(&database, key, 10000000, PathBuf::new(temp_dir.path()));
 
         // give the export thread plenty of time to process all files
-        Timer::new().unwrap().sleep(Duration::milliseconds(500));
+        Timer::new().unwrap().sleep(Duration::milliseconds(200));
 
         // we should receive two messages for each file: one for its block and
         // one for the file completion.
