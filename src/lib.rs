@@ -376,11 +376,41 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod test {
     use std::io::{Read, Write, BufReader};
     use std::fs::File;
+    use std::time::duration::Duration;
+    use std::path::PathBuf;
 
     use super::tempdir::TempDir;
     use super::rand::{Rng, OsRng};
     use super::bzip2::reader::{BzDecompressor, BzCompressor};
     use super::bzip2::Compress;
+    use super::crypto::hash_file;
+    use super::{write_to_disk, block_output_path, backup};
+    use super::time;
+    
+    // It can happen that a block is (partially) written, but not persisted to database
+    // Therefore, backbonzo will retry to write this block. this should not err
+    #[test]
+    fn overwrite_block() {
+        let bytes = b"71d6e2f35502c03743f676449c503f487de29988";
+
+        let source_dir = TempDir::new("overwrite-source").unwrap();
+        let dest_dir = TempDir::new("overwrite-dest").unwrap();
+        let in_path = source_dir.path().join("whatev");
+        
+        write_to_disk(&in_path, bytes).unwrap();
+        
+        let hash = hash_file(&in_path).unwrap();
+        let out_path = block_output_path(dest_dir.path(), &hash);
+
+        write_to_disk(&out_path, b"sup").unwrap();
+
+        let deadline = time::now() + Duration::seconds(30);
+
+        let result = backup(PathBuf::new(source_dir.path()), 1_000_000, "passwerd", deadline);
+
+        assert!(result.is_ok());
+    }
+
 
     #[test]
     fn process_reversability() {
@@ -405,7 +435,7 @@ mod test {
     }
     
     #[test]
-    fn write_to_disk() {
+    fn write_file() {
         let temp_dir = TempDir::new("write-test").unwrap();
         let file_path = temp_dir.path().join("hello.txt");
         let message = "what's up?";
