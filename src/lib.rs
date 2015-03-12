@@ -286,6 +286,8 @@ pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> Bonzo
 }
 
 fn create_parent_dir(path: &Path) -> BonzoResult<()> {
+    use std::error::FromError;
+    
     let parent = try!(path.parent().ok_or(BonzoError::from_str("Couldn't get parent directory")));
 
     Ok(try!(create_dir_all(parent)))
@@ -375,7 +377,7 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod test {
     use std::io::{Read, Write, BufReader};
-    use std::fs::File;
+    use std::fs::{create_dir_all, File};
     use std::time::duration::Duration;
     use std::path::PathBuf;
 
@@ -384,7 +386,7 @@ mod test {
     use super::bzip2::reader::{BzDecompressor, BzCompressor};
     use super::bzip2::Compress;
     use super::crypto::hash_file;
-    use super::{write_to_disk, block_output_path, backup};
+    use super::{write_to_disk, block_output_path, init, backup};
     use super::time;
     
     // It can happen that a block is (partially) written, but not persisted to database
@@ -397,18 +399,22 @@ mod test {
         let dest_dir = TempDir::new("overwrite-dest").unwrap();
         let in_path = source_dir.path().join("whatev");
         
-        write_to_disk(&in_path, bytes).unwrap();
+        write_to_disk(&in_path, bytes).ok().expect("write input");
         
-        let hash = hash_file(&in_path).unwrap();
+        let hash = hash_file(&in_path).ok().expect("compute hash");
         let out_path = block_output_path(dest_dir.path(), &hash);
 
-        write_to_disk(&out_path, b"sup").unwrap();
+        create_dir_all(&out_path.parent().unwrap()).ok().expect("created dir");
+
+        match write_to_disk(&out_path, b"sup") {
+            Ok(..) => {},
+            Err(e) => panic!("{:?}", e.detail())
+        }
 
         let deadline = time::now() + Duration::seconds(30);
 
-        let result = backup(PathBuf::new(source_dir.path()), 1_000_000, "passwerd", deadline);
-
-        assert!(result.is_ok());
+        init(PathBuf::new(source_dir.path()), PathBuf::new(dest_dir.path()), "passwerd").ok().expect("init ok");
+        backup(PathBuf::new(source_dir.path()), 1_000_000, "passwerd", deadline).ok().expect("backup successful");
     }
 
 
@@ -440,7 +446,7 @@ mod test {
         let file_path = temp_dir.path().join("hello.txt");
         let message = "what's up?";
 
-        let _ = super::write_to_disk(&file_path, message.as_bytes());
+        let _ = write_to_disk(&file_path, message.as_bytes());
 
         let mut file = File::open(&file_path).unwrap();
         let mut buffer = Vec::new();
