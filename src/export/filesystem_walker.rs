@@ -3,39 +3,32 @@ use std::path::{PathBuf, Path};
 use std::fs::{read_dir, PathExt};
 use std::borrow::ToOwned;
 use std::iter::IteratorExt;
-use std::vec::IntoIter;
+
+use super::super::iter_reduce::{Reduce, IteratorReduce};
 
 pub struct FilesystemWalker {
-    cur: Option<IntoIter<(u64, PathBuf)>>,
-    stack: Vec<IntoIter<(u64, PathBuf)>>
+    cur: Vec<(u64, PathBuf)>
 }
 
 // The idea here is that we serve the most recently changed files first
-// because those are likely to be the most relevant. The current implementation
-// does not guarantee this, though.
+// because those are likely to be the most relevant.
 impl Iterator for FilesystemWalker {
     type Item = io::Result<(u64, PathBuf)>;
 
     fn next(&mut self) -> Option<io::Result<(u64, PathBuf)>> {
         loop {
-            if let Some(ref mut cur) = self.cur {
-                if let Some((modified, path)) = cur.next() {
+            match self.cur.pop() {
+                Some((modified, path)) => {
                     if path.is_dir() {
-                        match FilesystemWalker::read_dir_sorted(&path) {
-                            Err(e) => return Some(Err(e)),
-                            Ok(deeper) => self.stack.push(deeper)
+                        if let Err(e) = self.read_dir_sorted(&path) {
+                            return Some(Err(e));
                         }
                     }
-                    
-                    return Some(Ok((modified, path)));
-                }
-            }
-            
-            self.cur = None;
-            
-            match self.stack.pop() {
-                next @ Some(..) => self.cur = next,
-                None => return None,
+                    else {
+                        return Some(Ok((modified, path)));
+                    }
+                },
+                None => return None
             }
         }
     }
@@ -43,16 +36,17 @@ impl Iterator for FilesystemWalker {
 
 impl FilesystemWalker {
     pub fn new(dir: &Path) -> io::Result<FilesystemWalker> {
-        let start = try!(FilesystemWalker::read_dir_sorted(dir));
+        let mut walker = FilesystemWalker {
+            cur: Vec::new()
+        };
 
-        Ok(FilesystemWalker {
-            cur: Some(start),
-            stack: Vec::new()
-        })
+        try!(walker.read_dir_sorted(dir));
+
+        Ok(walker)
     }
     
-    fn read_dir_sorted(dir: &Path) -> io::Result<IntoIter<(u64, PathBuf)>> {    
-        let mut vec: Vec<(u64, PathBuf)> = try!(
+    fn read_dir_sorted(&mut self, dir: &Path) -> io::Result<()> {    
+        try!(
             read_dir(dir)
             .and_then(|list| list
                 .map(|possible_entry| {
@@ -60,18 +54,19 @@ impl FilesystemWalker {
                         let path = entry.path();
                         
                         path.metadata()
-                            .map(move |stats| {
-                                (stats.modified(), path.to_owned())
+                            .map(|stats| {
+                                let pair = (stats.modified(), path.to_owned());
+                                self.cur.push(pair);
                             })
                     })
                 })
-                .collect()
+                .reduce()
             )
         );
 
-        vec.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
+        self.cur.sort_by(|&(a, _), &(b, _)| a.cmp(&b));
 
-        Ok(vec.into_iter())
+        Ok(())
     }
 }
 
@@ -80,6 +75,7 @@ impl FilesystemWalker {
 mod test {
     use std::old_io::Timer;
     use std::time::Duration;
+    use std::fs::create_dir_all;
 
     use super::super::super::tempdir::TempDir;
     use super::super::super::write_to_disk;
@@ -87,24 +83,42 @@ mod test {
     #[test]
     fn read_dir() {
         let temp_dir = TempDir::new("readdir-test").unwrap();
+        let root_path = temp_dir.path();
+        let sub_dir = root_path.join("sub");
+
+        create_dir_all(&sub_dir).unwrap();
 
         {
-            let file_path = temp_dir.path().join("firstfile");
+            let file_path = root_path.join("filezero");
             write_to_disk(&file_path, b"test123").unwrap();
         }
 
         Timer::new().unwrap().sleep(Duration::milliseconds(50));
 
         {
-            let file_path = temp_dir.path().join("second");
+            let file_path = sub_dir.join("firstfile");
+            write_to_disk(&file_path, b"yolo").unwrap();
+        }
+
+        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+
+        {
+            let file_path = root_path.join("second");
             write_to_disk(&file_path, b"hello").unwrap();
         }
 
         Timer::new().unwrap().sleep(Duration::milliseconds(50));
 
         {
-            let file_path = temp_dir.path().join("third");
+            let file_path = root_path.join("third");
             write_to_disk(&file_path, b"waddaa").unwrap();
+        }
+
+        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+
+        {
+            let file_path = sub_dir.join("deadlast");
+            write_to_disk(&file_path, b"plswork").unwrap();
         }
 
         let list = super::FilesystemWalker::new(temp_dir.path()).unwrap();
@@ -117,6 +131,6 @@ mod test {
             })
             .collect();
 
-        assert_eq!(&["third", "second", "firstfile"], &filenames);
+        assert_eq!(&["deadlast", "third", "second", "firstfile", "filezero"], &filenames);
     }
 }
