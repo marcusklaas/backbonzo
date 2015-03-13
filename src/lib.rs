@@ -286,8 +286,6 @@ pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> Bonzo
 }
 
 fn create_parent_dir(path: &Path) -> BonzoResult<()> {
-    use std::error::FromError;
-    
     let parent = try!(path.parent().ok_or(BonzoError::from_str("Couldn't get parent directory")));
 
     Ok(try!(create_dir_all(parent)))

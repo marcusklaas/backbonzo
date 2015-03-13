@@ -1,8 +1,7 @@
-use std::io::{Read, Write, Result};
+use std::io::{Read, Write};
 use std::path::{PathBuf, Path};
 use std::thread::spawn;
-use std::fs::{read_dir, PathExt};
-use std::borrow::ToOwned;
+use std::fs::PathExt;
 use std::iter::IteratorExt;
 
 use bzip2::{Compress};
@@ -13,15 +12,21 @@ use super::error::{BonzoResult, BonzoError};
 use super::database::Database;
 use super::crypto;
 use super::file_chunks::file_chunks;
-use super::comm::spsc::bounded::{self, Producer, Consumer};
+use super::comm::mpsc::bounded_fast as mpsc;
+use super::comm::spmc::bounded_fast as spmc;
 use super::iter_reduce::{Reduce, IteratorReduce};
+
+use self::filesystem_walker::FilesystemWalker;
+
+mod filesystem_walker;
 
 // The number of messages that should be buffered for the export thread. A large 
 // buffer will take up lots of memory and make will make the exporter do more
 // unnecessary work when the receiver quits due to a time out. A small buffer
 // increases the likelihood of buffer underruns, especially when a sequence of
 // small files is being processed.
-static CHANNEL_BUFFER_SIZE: usize = 10;
+static CHANNEL_BUFFER_SIZE: usize = 16;
+static EXPORT_THREAD_COUNT: usize = 4;
 
 // Specification of messsages sent over the channel
 pub enum FileInstruction {
@@ -66,11 +71,16 @@ pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Box<[u8; 32]>,
     block_size: usize,
-    sender: &'sender mut Producer<'static, FileInstruction>
+    sender: &'sender mut mpsc::Producer<'static, FileInstruction>
 }
 
 impl<'sender> ExportBlockSender<'sender> {
-    pub fn new(database: Database, encryption_key: Box<[u8; 32]>, block_size: usize, sender: &'sender mut Producer<'static, FileInstruction>) -> BonzoResult<ExportBlockSender<'sender>> {
+    pub fn new(
+        database: Database,
+        encryption_key: Box<[u8; 32]>,
+        block_size: usize,
+        sender: &'sender mut mpsc::Producer<'static, FileInstruction>
+    ) -> BonzoResult<ExportBlockSender<'sender>> {
         Ok(ExportBlockSender {
             database: database,
             encryption_key: encryption_key,
@@ -83,10 +93,12 @@ impl<'sender> ExportBlockSender<'sender> {
     // Deletes references to deleted files which were previously found from the
     // database. Processes files in descending order of last mutation.
     pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
-        let content_list = try!(read_dir_sorted(path));
+        let content_iter = try!(FilesystemWalker::new(path));
         let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
         
-        for &(last_modified, ref content_path) in content_list.iter() {
+        for item in content_iter {
+            let (last_modified, content_path) = try!(item);
+            
             let filename = try!(
                 content_path
                     .file_name()
@@ -98,13 +110,13 @@ impl<'sender> ExportBlockSender<'sender> {
             if content_path.is_dir() {
                 let child_directory = try!(self.database.get_directory(directory, &filename));
             
-                try!(self.export_directory(content_path, child_directory));
+                try!(self.export_directory(&content_path, child_directory));
             }
             else {
                 // FIXME: don't String::from_str if filename is dir
                 if directory != Directory::Root || filename != super::DATABASE_FILENAME {
                     deleted_filenames.remove(&filename);
-                    try!(self.export_file(directory, content_path, filename, last_modified));
+                    try!(self.export_file(directory, &content_path, filename, last_modified));
                 }
             }
         }
@@ -180,29 +192,6 @@ impl<'sender> ExportBlockSender<'sender> {
     }
 }
 
-fn read_dir_sorted(dir: &Path) -> Result<Vec<(u64, PathBuf)>> {    
-    let mut vec: Vec<(u64, PathBuf)> = try!(
-        read_dir(dir)
-        .and_then(|list| list
-            .map(|possible_entry| {
-                possible_entry.and_then(|entry| {
-                    let path = entry.path();
-                    
-                    path.metadata()
-                        .map(move |stats| {
-                            (stats.modified(), path.to_owned())
-                        })
-                })
-            })
-            .collect()
-        )
-    );
-
-    vec.sort_by(|&(a, _), &(b, _)| a.cmp(&b).reverse());
-
-    Ok(vec)
-}
-
 pub fn process_block(clear_text: &[u8], key: &[u8; 32]) -> BonzoResult<Vec<u8>> {    
     let mut compressor = BzCompressor::new(clear_text, Compress::Best);
     let mut buffer = Vec::new();    
@@ -213,12 +202,13 @@ pub fn process_block(clear_text: &[u8], key: &[u8; 32]) -> BonzoResult<Vec<u8>> 
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: usize, source_path: PathBuf) -> Consumer<'static, FileInstruction> {
-    let (mut transmitter, receiver) = bounded::new(CHANNEL_BUFFER_SIZE);
+pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: usize, source_path: PathBuf) -> mpsc::Consumer<'static, FileInstruction> {
+    let (mut block_transmitter, block_receiver) = unsafe { mpsc::new(CHANNEL_BUFFER_SIZE) };
+    let (path_transmitter, path_receiver): (spmc::Producer<PathBuf>, spmc::Consumer<PathBuf>) = unsafe { spmc::new(CHANNEL_BUFFER_SIZE) };
     let new_database = database.clone();
-
+        
     spawn(move|| {
-        let result = ExportBlockSender::new(new_database, encryption_key, block_size, &mut transmitter)
+        let result = ExportBlockSender::new(new_database, encryption_key, block_size, &mut block_transmitter)
                                        .and_then(|mut exporter| {
                                            exporter.export_directory(&source_path, Directory::Root)
                                        });
@@ -228,10 +218,10 @@ pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, b
             _      => FileInstruction::Done
         };
 
-        let _ = transmitter.send_sync(instruction);
+        let _ = block_transmitter.send_sync(instruction);
     });
 
-    receiver
+    block_receiver
 }
 
 #[cfg(test)]
@@ -242,41 +232,6 @@ mod test {
 
     use super::super::tempdir::TempDir;
     use super::super::write_to_disk;
-
-    #[test]
-    fn read_dir() {
-        let temp_dir = TempDir::new("readdir-test").unwrap();
-
-        {
-            let file_path = temp_dir.path().join("firstfile");
-            write_to_disk(&file_path, b"test123").unwrap();
-        }
-
-        Timer::new().unwrap().sleep(Duration::milliseconds(50));
-
-        {
-            let file_path = temp_dir.path().join("second");
-            write_to_disk(&file_path, b"hello").unwrap();
-        }
-
-        Timer::new().unwrap().sleep(Duration::milliseconds(50));
-
-        {
-            let file_path = temp_dir.path().join("third");
-            write_to_disk(&file_path, b"waddaa").unwrap();
-        }
-
-        let list = super::read_dir_sorted(temp_dir.path()).unwrap();
-
-        let filenames: Vec<String> = list
-            .into_iter()
-            .map(|(_, path)| {
-                path.file_name().unwrap().to_string_lossy().into_owned()
-            })
-            .collect();
-
-        assert_eq!(&["third", "second", "firstfile"], &filenames);
-    }
     
     #[test]
     fn channel_buffer() {
