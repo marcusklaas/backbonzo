@@ -16,7 +16,7 @@ use super::comm::mpsc::bounded_fast as mpsc;
 use super::comm::spmc::bounded_fast as spmc;
 use super::iter_reduce::{Reduce, IteratorReduce};
 
-use self::filesystem_walker::FilesystemWalker;
+use self::filesystem_walker::newest_first_walker;
 
 mod filesystem_walker;
 
@@ -93,11 +93,11 @@ impl<'sender> ExportBlockSender<'sender> {
     // Deletes references to deleted files which were previously found from the
     // database. Processes files in descending order of last mutation.
     pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
-        let content_iter = try!(FilesystemWalker::new(path));
+        let content_iter = try!(newest_first_walker(path));
         let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
         
         for item in content_iter {
-            let (last_modified, content_path) = try!(item);
+            let (content_path, last_modified) = try!(item);
             
             let filename = try!(
                 content_path

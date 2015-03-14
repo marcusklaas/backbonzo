@@ -3,29 +3,33 @@ use std::path::{PathBuf, Path};
 use std::fs::{read_dir, PathExt};
 use std::borrow::ToOwned;
 use std::iter::IteratorExt;
+use std::cmp::Ordering;
+use std::mem;
 
 use super::super::iter_reduce::{Reduce, IteratorReduce};
 
-pub struct FilesystemWalker {
-    cur: Vec<(u64, PathBuf)>
+pub struct FilesystemWalker<'a, T> {
+    cur: Vec<(PathBuf, T)>,
+    file_map: &'a Fn(&Path) -> io::Result<T>,
+    sort_map: &'a Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering
 }
 
 // The idea here is that we serve the most recently changed files first
 // because those are likely to be the most relevant.
-impl Iterator for FilesystemWalker {
-    type Item = io::Result<(u64, PathBuf)>;
+impl<'a, T> Iterator for FilesystemWalker<'a, T> {
+    type Item = io::Result<(PathBuf, T)>;
 
-    fn next(&mut self) -> Option<io::Result<(u64, PathBuf)>> {
+    fn next(&mut self) -> Option<io::Result<(PathBuf, T)>> {
         loop {
             match self.cur.pop() {
-                Some((modified, path)) => {
+                Some((path, extra)) => {
                     if path.is_dir() {
                         if let Err(e) = self.read_dir_sorted(&path) {
                             return Some(Err(e));
                         }
                     }
                     else {
-                        return Some(Ok((modified, path)));
+                        return Some(Ok((path, extra)));
                     }
                 },
                 None => return None
@@ -34,10 +38,14 @@ impl Iterator for FilesystemWalker {
     }
 }
 
-impl FilesystemWalker {
-    pub fn new(dir: &Path) -> io::Result<FilesystemWalker> {
+impl<'a, T> FilesystemWalker<'a, T> {
+    pub fn new<F, S>(dir: &Path, file_map: &'a F, sort_map: &'a S) -> io::Result<FilesystemWalker<'a, T>>
+           where F: Fn(&Path) -> io::Result<T>,
+                 S: Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering {
         let mut walker = FilesystemWalker {
-            cur: Vec::new()
+            cur: Vec::new(),
+            file_map: file_map,
+            sort_map: sort_map
         };
 
         try!(walker.read_dir_sorted(dir));
@@ -53,9 +61,9 @@ impl FilesystemWalker {
                     possible_entry.and_then(|entry| {
                         let path = entry.path();
                         
-                        path.metadata()
-                            .map(|stats| {
-                                let pair = (stats.modified(), path.to_owned());
+                        (*self.file_map)(&path)
+                            .map(|extra| {
+                                let pair = (path.to_owned(), extra);
                                 self.cur.push(pair);
                             })
                     })
@@ -64,12 +72,46 @@ impl FilesystemWalker {
             )
         );
 
-        self.cur.sort_by(|&(a, _), &(b, _)| a.cmp(&b));
+        let other_self: &FilesystemWalker<'a, T>  = unsafe { mem::transmute(&mut *self) };
+
+        self.cur.sort_by(|a, b| (*other_self.sort_map)(a, b) );
 
         Ok(())
     }
 }
 
+pub struct NewestFirst {
+    walker: FilesystemWalker<'a, u64>,
+    file_map: Box<Fn(&Path) -> io::Result<u64> + 'a>,
+    sort_map: Box<Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering + 'a>
+}
+
+//impl<'a> NewestFirst<'a> {
+    //pub fn new(dir: &Path) -> io::Result<NewestFirst<'a> {
+        
+    //}
+//}    
+
+static MODIFIED_DATE: &'static Fn(&Path) -> io::Result<u64>                     = &modified_date;
+static NEWEST_FIRST:  &'static Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering = &newest_first;
+
+pub fn newest_first_walker(dir: &Path) -> io::Result<FilesystemWalker<'static, u64>> {
+    FilesystemWalker::new(dir, MODIFIED_DATE, NEWEST_FIRST)
+}
+
+fn modified_date(path: &Path) -> io::Result<u64> {
+    path.metadata()
+        .map(|stats| {
+            stats.modified()
+        })
+}
+
+fn newest_first(a: &(PathBuf, u64), b: &(PathBuf, u64)) -> Ordering {
+    let &(_, time_a) = a;
+    let &(_, time_b) = b;
+
+    a.cmp(b) 
+}
 
 #[cfg(test)]
 mod test {
@@ -121,11 +163,11 @@ mod test {
             write_to_disk(&file_path, b"plswork").unwrap();
         }
 
-        let list = super::FilesystemWalker::new(temp_dir.path()).unwrap();
+        let list = super::newest_first_walker(temp_dir.path()).unwrap();
 
         let filenames: Vec<String> = list
             .map(|x| {
-                let (_, path) = x.unwrap();
+                let (path, _) = x.unwrap();
                 
                 path.file_name().unwrap().to_string_lossy().into_owned()
             })
