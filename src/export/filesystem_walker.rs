@@ -8,7 +8,7 @@ use std::mem;
 
 use super::super::iter_reduce::{Reduce, IteratorReduce};
 
-pub struct FilesystemWalker<'a, T> {
+pub struct FilesystemWalker<'a, T: 'static> {
     cur: Vec<(PathBuf, T)>,
     file_map: &'a Fn(&Path) -> io::Result<T>,
     sort_map: &'a Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering
@@ -80,37 +80,49 @@ impl<'a, T> FilesystemWalker<'a, T> {
     }
 }
 
-pub struct NewestFirst {
+pub struct NewestFirst<'a> {
     walker: FilesystemWalker<'a, u64>,
-    file_map: Box<Fn(&Path) -> io::Result<u64> + 'a>,
-    sort_map: Box<Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering + 'a>
+    file_map: Box<Fn(&Path) -> io::Result<u64>>,
+    sort_map: Box<Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering>
 }
 
-//impl<'a> NewestFirst<'a> {
-    //pub fn new(dir: &Path) -> io::Result<NewestFirst<'a> {
-        
-    //}
-//}    
-
-static MODIFIED_DATE: &'static Fn(&Path) -> io::Result<u64>                     = &modified_date;
-static NEWEST_FIRST:  &'static Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering = &newest_first;
-
-pub fn newest_first_walker(dir: &Path) -> io::Result<FilesystemWalker<'static, u64>> {
-    FilesystemWalker::new(dir, MODIFIED_DATE, NEWEST_FIRST)
+impl<'a> Iterator for NewestFirst<'a> {
+    type Item = io::Result<(PathBuf, u64)>;
+    
+    fn next(&mut self) -> Option<io::Result<(PathBuf, u64)>> {
+        self.walker.next()
+    }
 }
 
-fn modified_date(path: &Path) -> io::Result<u64> {
-    path.metadata()
-        .map(|stats| {
-            stats.modified()
-        })
-}
+pub fn newest_first_walker(dir: &Path) -> io::Result<NewestFirst<'static>> {
+    fn newest_first(a: &(PathBuf, u64), b: &(PathBuf, u64)) -> Ordering {
+        let &(_, time_a) = a;
+        let &(_, time_b) = b;
 
-fn newest_first(a: &(PathBuf, u64), b: &(PathBuf, u64)) -> Ordering {
-    let &(_, time_a) = a;
-    let &(_, time_b) = b;
+        time_a.cmp(&time_b) 
+    }        
 
-    a.cmp(b) 
+    fn modified_date(path: &Path) -> io::Result<u64> {
+        path.metadata()
+            .map(|stats| {
+                stats.modified()
+            })
+    }
+
+    let file_map = Box::new(modified_date);
+    let sort_map = Box::new(newest_first);
+    
+    let walker: io::Result<FilesystemWalker<u64>> = FilesystemWalker::<u64>::new(
+        dir,
+        unsafe { mem::copy_lifetime("silly", &*file_map) },
+        unsafe { mem::copy_lifetime("wadda", &*sort_map) }
+    );
+
+    Ok(NewestFirst {
+        walker: try!(walker),
+        file_map: file_map,
+        sort_map: sort_map
+    })
 }
 
 #[cfg(test)]
