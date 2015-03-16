@@ -1,10 +1,8 @@
 #![feature(collections)]
 #![feature(libc)]
 #![feature(path_ext)]
-#![feature(io)]
 #![feature(std_misc)]
 #![feature(core)]
-#![feature(path)]
 #![feature(plugin)]
 #![feature(fs_time)]
 
@@ -286,8 +284,6 @@ pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> Bonzo
 }
 
 fn create_parent_dir(path: &Path) -> BonzoResult<()> {
-    use std::error::FromError;
-    
     let parent = try!(path.parent().ok_or(BonzoError::from_str("Couldn't get parent directory")));
 
     Ok(try!(create_dir_all(parent)))
@@ -408,7 +404,7 @@ mod test {
 
         match write_to_disk(&out_path, b"sup") {
             Ok(..) => {},
-            Err(e) => panic!("{:?}", e.detail())
+            Err(e) => panic!("{:?}", e.to_string())
         }
 
         let deadline = time::now() + Duration::seconds(30);

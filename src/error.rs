@@ -1,5 +1,5 @@
-use std::error::FromError;
-use std::io::Error;
+use std::error::{Error, FromError};
+use std::io;
 use std::fmt;
 
 use super::rust_crypto::symmetriccipher::SymmetricCipherError;
@@ -7,7 +7,7 @@ use super::database::SqliteError;
 
 pub enum BonzoError {
     Database(SqliteError),
-    Io(Error),
+    Io(io::Error),
     Crypto(SymmetricCipherError),
     Other(String)
 }
@@ -18,8 +18,8 @@ impl BonzoError {
     }
 }
 
-impl FromError<Error> for BonzoError {
-    fn from_error(error: Error) -> BonzoError {
+impl FromError<io::Error> for BonzoError {
+    fn from_error(error: io::Error) -> BonzoError {
         BonzoError::Io(error)
     }
 }
@@ -40,7 +40,7 @@ impl fmt::Debug for BonzoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BonzoError::Database(ref e) => write!(f, "Database error: {}", e.message),
-            BonzoError::Io(ref e)       => write!(f, "IO error ({:?}): {}, {}", e.kind(), e.description(), e.detail().clone().unwrap_or_default()),
+            BonzoError::Io(ref e)       => write!(f, "IO error ({:?}): {}, {}", e.kind(), <io::Error as Error>::description(e), e.to_string()),
             BonzoError::Crypto(..)      => write!(f, "Crypto error!"),
             BonzoError::Other(ref str)  => write!(f, "Error: {}", str)
         }

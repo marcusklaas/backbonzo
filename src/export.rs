@@ -1,4 +1,4 @@
-use std::io::{Read, Write, Result};
+use std::io::{Read, Result};
 use std::path::{PathBuf, Path};
 use std::thread::spawn;
 use std::fs::{read_dir, PathExt};
