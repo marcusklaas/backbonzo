@@ -8,32 +8,32 @@ use std::mem;
 
 use super::super::iter_reduce::{Reduce, IteratorReduce};
 
+// Walks the filesystem in an order that is defined by sort map, returning extra
+// information along with the paths. Is guaranteed to return directories before
+// their children
 pub struct FilesystemWalker<'a, T: 'static> {
     cur: Vec<(PathBuf, T)>,
     file_map: &'a Fn(&Path) -> io::Result<T>,
     sort_map: &'a Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering
 }
 
-// The idea here is that we serve the most recently changed files first
-// because those are likely to be the most relevant.
 impl<'a, T> Iterator for FilesystemWalker<'a, T> {
     type Item = io::Result<(PathBuf, T)>;
 
     fn next(&mut self) -> Option<io::Result<(PathBuf, T)>> {
-        loop {
-            match self.cur.pop() {
-                Some((path, extra)) => {
-                    if path.is_dir() {
-                        if let Err(e) = self.read_dir_sorted(&path) {
-                            return Some(Err(e));
-                        }
+        match self.cur.pop() {
+            Some((path, extra)) => {
+                if path.is_dir() {
+                    match self.read_dir_sorted(&path) {
+                        Err(e) => Some(Err(e)),
+                        Ok(..) => Some(Ok((path, extra)))
                     }
-                    else {
-                        return Some(Ok((path, extra)));
-                    }
-                },
-                None => return None
-            }
+                }
+                else {
+                    Some(Ok((path, extra)))
+                }
+            },
+            None => None
         }
     }
 }
@@ -72,7 +72,7 @@ impl<'a, T> FilesystemWalker<'a, T> {
             )
         );
 
-        let other_self: &FilesystemWalker<'a, T>  = unsafe { mem::transmute(&mut *self) };
+        let other_self: &FilesystemWalker<'a, T> = unsafe { mem::transmute(&mut *self) };
 
         self.cur.sort_by(|a, b| (*other_self.sort_map)(a, b) );
 
@@ -80,9 +80,13 @@ impl<'a, T> FilesystemWalker<'a, T> {
     }
 }
 
+// The idea here is that we serve the most recently changed files first
+// because those are likely to be the most relevant.
 pub struct NewestFirst<'a> {
     walker: FilesystemWalker<'a, u64>,
+    #[allow(dead_code)]
     file_map: Box<Fn(&Path) -> io::Result<u64>>,
+    #[allow(dead_code)]
     sort_map: Box<Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering>
 }
 
@@ -185,6 +189,6 @@ mod test {
             })
             .collect();
 
-        assert_eq!(&["deadlast", "third", "second", "firstfile", "filezero"], &filenames);
+        assert_eq!(&["sub", "deadlast", "third", "second", "firstfile", "filezero"], &filenames);
     }
 }
