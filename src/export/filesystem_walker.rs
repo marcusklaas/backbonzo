@@ -6,7 +6,13 @@ use std::iter::IteratorExt;
 use std::cmp::Ordering;
 use std::mem;
 
+use super::super::comm::spmc::bounded_fast as spmc;
 use super::super::iter_reduce::{Reduce, IteratorReduce};
+
+pub struct FilePathSender<'a, T: 'static + Send> {
+    walker: FilesystemWalker<'a, T>,
+    channel: spmc::Producer<'static, (PathBuf, T)>
+}
 
 // Walks the filesystem in an order that is defined by sort map, returning extra
 // information along with the paths. Is guaranteed to return directories before

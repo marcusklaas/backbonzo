@@ -11,25 +11,14 @@ name = "backbonzo"
 time = "*"
 glob = "*"
 rustc-serialize = "*"
-#rusqlite = "*"
-#libsqlite3-sys = "*"
-#rust-crypto = "*"
+rusqlite = "*"
+libsqlite3-sys = "*"
+rust-crypto = "*"
 rand = "*"
 regex = "*"
 regex_macros = "*"
 docopt = "*"
 tempdir = "*"
-
-[dependencies.rusqlite]
-git = "https://github.com/marcusklaas/rusqlite.git"
-rev = "f30ceffa6ca0d6a988675"
-
-[dependencies.libsqlite3-sys]
-git = "https://github.com/marcusklaas/rusqlite.git"
-rev = "f30ceffa6ca0d6a988675"
-
-[dependencies.rust-crypto]
-git = "https://github.com/dagenix/rust-crypto.git"
 
 [dependencies.bzip2]
 git = "https://github.com/alexcrichton/bzip2-rs.git"
