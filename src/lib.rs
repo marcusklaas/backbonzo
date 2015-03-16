@@ -1,10 +1,8 @@
 #![feature(collections)]
 #![feature(libc)]
 #![feature(path_ext)]
-#![feature(io)]
 #![feature(std_misc)]
 #![feature(core)]
-#![feature(path)]
 #![feature(plugin)]
 #![feature(fs_time)]
 
@@ -406,7 +404,7 @@ mod test {
 
         match write_to_disk(&out_path, b"sup") {
             Ok(..) => {},
-            Err(e) => panic!("{:?}", e.detail())
+            Err(e) => panic!("{:?}", e.to_string())
         }
 
         let deadline = time::now() + Duration::seconds(30);

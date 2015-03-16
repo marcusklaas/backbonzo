@@ -1,8 +1,6 @@
 #![feature(collections)]
-#![feature(io)]
 #![feature(std_misc)]
 #![feature(core)]
-#![feature(path)]
 #![feature(path_ext)]
 
 extern crate backbonzo;

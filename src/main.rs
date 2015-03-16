@@ -1,7 +1,5 @@
 #![feature(core)]
-#![feature(old_io)]
 #![feature(std_misc)]
-#![feature(path)]
 #![cfg(not(test))]
 
 extern crate "rustc-serialize" as rustc_serialize;
@@ -13,7 +11,7 @@ use docopt::Docopt;
 use std::path::PathBuf;
 use std::time::duration::Duration;
 use std::fmt::Debug;
-use std::old_io::stderr;
+use std::io::{Write, stderr};
 use backbonzo::{init, backup, restore, epoch_milliseconds, BonzoResult};
 
 static USAGE: &'static str = "
