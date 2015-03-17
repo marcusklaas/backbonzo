@@ -269,9 +269,9 @@ mod test {
             write_to_disk(&file_path, b"plswork").unwrap();
         }
 
-        let list = super::newest_first_walker(temp_dir.path(), true).unwrap();
+        let recursive_list = super::newest_first_walker(temp_dir.path(), true).unwrap();
 
-        let filenames: Vec<String> = list
+        let all: Vec<String> = recursive_list
             .map(|x| {
                 let (path, _) = x.unwrap();
                 
@@ -279,8 +279,18 @@ mod test {
             })
             .collect();
 
-        assert_eq!(&["sub", "deadlast", "third", "second", "firstfile", "filezero"], &filenames);
+        assert_eq!(&["sub", "deadlast", "third", "second", "firstfile", "filezero"], &all);
 
-        // TODO: add test for non-recursive case
+        let flat_list = super::newest_first_walker(temp_dir.path(), true).unwrap();
+
+        let directory: Vec<String> = flat_list
+            .map(|x| {
+                let (path, _) = x.unwrap();
+                
+                path.file_name().unwrap().to_string_lossy().into_owned()
+            })
+            .collect();
+
+        assert_eq!(&["sub", "third", "second", "filezero"], &all);
     }
 }
