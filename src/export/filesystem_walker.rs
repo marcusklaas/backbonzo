@@ -281,7 +281,7 @@ mod test {
 
         assert_eq!(&["sub", "deadlast", "third", "second", "firstfile", "filezero"], &all);
 
-        let flat_list = super::newest_first_walker(temp_dir.path(), true).unwrap();
+        let flat_list = super::newest_first_walker(temp_dir.path(), false).unwrap();
 
         let directory: Vec<String> = flat_list
             .map(|x| {
@@ -291,6 +291,6 @@ mod test {
             })
             .collect();
 
-        assert_eq!(&["sub", "third", "second", "filezero"], &all);
+        assert_eq!(&["sub", "third", "second", "filezero"], &directory);
     }
 }
