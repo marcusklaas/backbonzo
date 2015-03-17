@@ -9,9 +9,90 @@ use std::mem;
 use super::super::comm::spmc::bounded_fast as spmc;
 use super::super::iter_reduce::{Reduce, IteratorReduce};
 
-pub struct FilePathSender<'a, T: 'static + Send> {
-    walker: FilesystemWalker<'a, T>,
-    channel: spmc::Producer<'static, (PathBuf, T)>
+use super::super::database::Database;
+use super::super::Directory;
+use super::super::error::{BonzoResult, BonzoError};
+
+pub struct FileInfo {
+    pub path: PathBuf,
+    pub modified: u64,
+    pub filename: String,
+    pub directory: Directory
+}
+
+pub type FileInfoMessage = BonzoResult<FileInfo>;
+
+struct FilePathExporter<'sender> {
+    database: Database,
+    channel: &'sender mut spmc::Producer<'static, FileInfoMessage>
+}
+
+impl<'sender> FilePathExporter<'sender> {
+    // Recursively walks the given directory, processing all files within.
+    // Deletes references to deleted files which were previously found from the
+    // database. Processes files in descending order of last mutation.
+    fn export_directory(&self, path: &Path, directory: Directory) -> BonzoResult<()> {
+        let content_iter = try!(newest_first_walker(path, false));
+        let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
+        
+        for item in content_iter {
+            let (content_path, last_modified) = try!(item);
+            
+            let filename = try!(
+                content_path
+                    .file_name()
+                    .and_then(|os_str| os_str.to_str())
+                    .ok_or(BonzoError::from_str("Could not convert filename to string"))
+                    .map(String::from_str)
+            );
+            
+            if content_path.is_dir() {
+                let child_directory = try!(self.database.get_directory(directory, &filename));
+            
+                try!(self.export_directory(&content_path, child_directory));
+            }
+            else {
+                // FIXME: don't String::from_str if filename is dir
+                if directory != Directory::Root || filename != super::super::DATABASE_FILENAME {
+                    deleted_filenames.remove(&filename);
+
+                    try!(
+                        self.channel.send_sync(Ok(FileInfo {
+                            path: content_path,
+                            modified: last_modified,
+                            filename: filename,
+                            directory: directory
+                        })).map_err(|_| BonzoError::from_str("Failed sending file path"))
+                    );
+                }
+            }
+        }
+
+        deleted_filenames
+            .iter()
+            .map(|filename| {
+                self.database
+                    .persist_null_alias(directory, filename.as_slice())
+                    .map_err(|e| BonzoError::Database(e))
+            })
+            .reduce()
+    }
+}
+
+// TODO: move this function and export_directory to own module
+pub fn send_files(source_path: &Path, database: Database, mut channel: spmc::Producer<'static, FileInfoMessage>) {
+    let result = {
+        let exporter = FilePathExporter {
+            database: database,
+            channel: &mut channel
+        };
+
+        exporter.export_directory(source_path, Directory::Root)
+    };
+
+    if let Err(e) = result {
+        let _ = channel.send_sync(Err(e));
+    }
 }
 
 // Walks the filesystem in an order that is defined by sort map, returning extra
@@ -20,7 +101,8 @@ pub struct FilePathSender<'a, T: 'static + Send> {
 pub struct FilesystemWalker<'a, T: 'static> {
     cur: Vec<(PathBuf, T)>,
     file_map: &'a Fn(&Path) -> io::Result<T>,
-    sort_map: &'a Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering
+    sort_map: &'a Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering,
+    recursive: bool
 }
 
 impl<'a, T> Iterator for FilesystemWalker<'a, T> {
@@ -29,7 +111,7 @@ impl<'a, T> Iterator for FilesystemWalker<'a, T> {
     fn next(&mut self) -> Option<io::Result<(PathBuf, T)>> {
         match self.cur.pop() {
             Some((path, extra)) => {
-                if path.is_dir() {
+                if self.recursive && path.is_dir() {
                     match self.read_dir_sorted(&path) {
                         Err(e) => Some(Err(e)),
                         Ok(..) => Some(Ok((path, extra)))
@@ -45,13 +127,14 @@ impl<'a, T> Iterator for FilesystemWalker<'a, T> {
 }
 
 impl<'a, T> FilesystemWalker<'a, T> {
-    pub fn new<F, S>(dir: &Path, file_map: &'a F, sort_map: &'a S) -> io::Result<FilesystemWalker<'a, T>>
+    pub fn new<F, S>(dir: &Path, file_map: &'a F, sort_map: &'a S, recursive: bool) -> io::Result<FilesystemWalker<'a, T>>
            where F: Fn(&Path) -> io::Result<T>,
                  S: Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering {
         let mut walker = FilesystemWalker {
             cur: Vec::new(),
             file_map: file_map,
-            sort_map: sort_map
+            sort_map: sort_map,
+            recursive: recursive
         };
 
         try!(walker.read_dir_sorted(dir));
@@ -104,7 +187,7 @@ impl<'a> Iterator for NewestFirst<'a> {
     }
 }
 
-pub fn newest_first_walker(dir: &Path) -> io::Result<NewestFirst<'static>> {
+pub fn newest_first_walker(dir: &Path, recursive: bool) -> io::Result<NewestFirst<'static>> {
     fn newest_first(a: &(PathBuf, u64), b: &(PathBuf, u64)) -> Ordering {
         let &(_, time_a) = a;
         let &(_, time_b) = b;
@@ -125,7 +208,8 @@ pub fn newest_first_walker(dir: &Path) -> io::Result<NewestFirst<'static>> {
     let walker: io::Result<FilesystemWalker<u64>> = FilesystemWalker::<u64>::new(
         dir,
         unsafe { mem::copy_lifetime("silly", &*file_map) },
-        unsafe { mem::copy_lifetime("wadda", &*sort_map) }
+        unsafe { mem::copy_lifetime("wadda", &*sort_map) },
+        recursive
     );
 
     Ok(NewestFirst {
@@ -185,7 +269,7 @@ mod test {
             write_to_disk(&file_path, b"plswork").unwrap();
         }
 
-        let list = super::newest_first_walker(temp_dir.path()).unwrap();
+        let list = super::newest_first_walker(temp_dir.path(), true).unwrap();
 
         let filenames: Vec<String> = list
             .map(|x| {
@@ -196,5 +280,7 @@ mod test {
             .collect();
 
         assert_eq!(&["sub", "deadlast", "third", "second", "firstfile", "filezero"], &filenames);
+
+        // TODO: add test for non-recursive case
     }
 }

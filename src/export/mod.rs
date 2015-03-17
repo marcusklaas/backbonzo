@@ -1,8 +1,6 @@
 use std::io::Read;
 use std::path::{PathBuf, Path};
 use std::thread::spawn;
-use std::fs::PathExt;
-use std::iter::IteratorExt;
 
 use bzip2::{Compress};
 use bzip2::reader::BzCompressor;
@@ -14,9 +12,8 @@ use super::crypto;
 use super::file_chunks::file_chunks;
 use super::comm::mpsc::bounded_fast as mpsc;
 use super::comm::spmc::bounded_fast as spmc;
-use super::iter_reduce::{Reduce, IteratorReduce};
 
-use self::filesystem_walker::newest_first_walker;
+use self::filesystem_walker::{send_files, FileInfoMessage};
 
 mod filesystem_walker;
 
@@ -32,8 +29,7 @@ static EXPORT_THREAD_COUNT: usize = 4;
 pub enum FileInstruction {
     NewBlock(FileBlock),
     Complete(FileComplete),
-    Error(BonzoError),
-    Done
+    Error(BonzoError)
 }
 
 // Sent after the encryption and compression of a block is completed. It is the
@@ -71,73 +67,28 @@ pub struct ExportBlockSender<'sender> {
     database: Database,
     encryption_key: Box<[u8; 32]>,
     block_size: usize,
+    path_receiver: spmc::Consumer<'static, FileInfoMessage>,
     sender: &'sender mut mpsc::Producer<'static, FileInstruction>
 }
 
 impl<'sender> ExportBlockSender<'sender> {
-    pub fn new(
-        database: Database,
-        encryption_key: Box<[u8; 32]>,
-        block_size: usize,
-        sender: &'sender mut mpsc::Producer<'static, FileInstruction>
-    ) -> BonzoResult<ExportBlockSender<'sender>> {
-        Ok(ExportBlockSender {
-            database: database,
-            encryption_key: encryption_key,
-            block_size: block_size,
-            sender: sender
-        })
-    }
-
-    // Recursively walks the given directory, processing all files within.
-    // Deletes references to deleted files which were previously found from the
-    // database. Processes files in descending order of last mutation.
-    pub fn export_directory(&mut self, path: &Path, directory: Directory) -> BonzoResult<()> {
-        let content_iter = try!(newest_first_walker(path));
-        let mut deleted_filenames = try!(self.database.get_directory_filenames(directory));
-        
-        for item in content_iter {
-            let (content_path, last_modified) = try!(item);
+    fn listen_for_paths(&self) -> BonzoResult<()> {
+        while let Ok(msg) = self.path_receiver.recv_sync() {
+            let info = try!(msg);
             
-            let filename = try!(
-                content_path
-                    .file_name()
-                    .and_then(|os_str| os_str.to_str())
-                    .ok_or(BonzoError::from_str("Could not convert filename to string"))
-                    .map(String::from_str)
-            );
-            
-            if content_path.is_dir() {
-                let child_directory = try!(self.database.get_directory(directory, &filename));
-            
-                try!(self.export_directory(&content_path, child_directory));
-            }
-            else {
-                // FIXME: don't String::from_str if filename is dir
-                if directory != Directory::Root || filename != super::DATABASE_FILENAME {
-                    deleted_filenames.remove(&filename);
-                    try!(self.export_file(directory, &content_path, filename, last_modified));
-                }
-            }
+            try!(self.export_file(info.directory, &info.path, info.filename, info.modified));
         }
-
-        deleted_filenames
-            .iter()
-            .map(|filename| {
-                self.database
-                    .persist_null_alias(directory, filename.as_slice())
-                    .map_err(|e| BonzoError::Database(e))
-            })
-            .reduce()
+        
+        Ok(())
     }
-
+    
     // Tries to backup file. When the file was already in the database, it does
     // nothing. If the file contents were previously backed up, a new reference
     // is created. For unknown files, its (compressed and encrypted) blocks are
     // sent over the channel. When all blocks are transmitted, a FileComplete
     // message is sent, so the receiver can persist the file to the
     // database. 
-    fn export_file(&mut self, directory: Directory, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {        
+    fn export_file(&self, directory: Directory, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {        
         if try!(self.database.alias_known(directory, filename.as_slice(), last_modified)) {           
             return Ok(());
         }
@@ -173,7 +124,7 @@ impl<'sender> ExportBlockSender<'sender> {
     // Returns the id of the block when its hash is already in the database.
     // Otherwise, it compresses and encrypts a block and sends the result on
     // the channel to be processed.
-    pub fn export_block(&mut self, block: &[u8]) -> BonzoResult<BlockReference> {
+    pub fn export_block(&self, block: &[u8]) -> BonzoResult<BlockReference> {
         let hash = crypto::hash_block(block);
 
         if let Some(id) = try!(self.database.block_id_from_hash(hash.as_slice())) {
@@ -202,24 +153,42 @@ pub fn process_block(clear_text: &[u8], key: &[u8; 32]) -> BonzoResult<Vec<u8>> 
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database: &Database, encryption_key: Box<[u8; 32]>, block_size: usize, source_path: PathBuf) -> mpsc::Consumer<'static, FileInstruction> {
-    let (mut block_transmitter, block_receiver) = unsafe { mpsc::new(CHANNEL_BUFFER_SIZE) };
-    let (path_transmitter, path_receiver): (spmc::Producer<PathBuf>, spmc::Consumer<PathBuf>) = unsafe { spmc::new(CHANNEL_BUFFER_SIZE) };
-    let new_database = database.clone();
-        
-    spawn(move|| {
-        let result = ExportBlockSender::new(new_database, encryption_key, block_size, &mut block_transmitter)
-                                       .and_then(|mut exporter| {
-                                           exporter.export_directory(&source_path, Directory::Root)
-                                       });
+pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block_size: usize, source_path: &Path) -> mpsc::Consumer<'static, FileInstruction> {
+    let (block_transmitter, block_receiver) = unsafe { mpsc::new(CHANNEL_BUFFER_SIZE) };
+    let (path_transmitter, path_receiver) = unsafe { spmc::new(CHANNEL_BUFFER_SIZE) };
+    let sender_database = database.clone();
+    let path = PathBuf::new(source_path);
 
-        let instruction = match result {
-            Err(e) => FileInstruction::Error(e),
-            _      => FileInstruction::Done
-        };
-
-        let _ = block_transmitter.send_sync(instruction);
+    // spawn thread that sends file paths
+    spawn(move || {
+        send_files(&path, sender_database, path_transmitter);
     });
+
+    // spawn encoder threads
+    for _ in 0..EXPORT_THREAD_COUNT {
+        let mut transmitter = block_transmitter.clone();
+        let new_database = database.clone();
+        let key = encryption_key.clone();
+        let receiver = path_receiver.clone();
+        
+        spawn(move|| {
+            let result = {
+                let exporter = ExportBlockSender {
+                    database: new_database,
+                    encryption_key: Box::new(key),
+                    block_size: block_size,
+                    path_receiver: receiver,
+                    sender: &mut transmitter
+                };
+                
+                exporter.listen_for_paths()
+            };
+
+            if let Err(e) = result {
+                let _ = transmitter.send_sync(FileInstruction::Error(e));
+            }
+        });
+    }
 
     block_receiver
 }
@@ -257,25 +226,23 @@ mod test {
         ).unwrap();
 
         let database = super::super::database::Database::from_file(database_path).unwrap();
-        let receiver = super::start_export_thread(&database, key, 10000000, PathBuf::new(temp_dir.path()));
+        let receiver = super::start_export_thread(&database, &key, 10000000, temp_dir.path());
 
         // give the export thread plenty of time to process all files
         Timer::new().unwrap().sleep(Duration::milliseconds(200));
 
         // we should receive two messages for each file: one for its block and
         // one for the file completion.
-        // One file one when done
-        let expected_message_count = 1 + 2 * file_count;
+        // One for each finished thread
+        let expected_message_count = 2 * file_count;
 
         let mut count = 0;
 
         while let Ok(msg) = receiver.recv_sync() {
             count += 1;
             
-            match msg {
-                super::FileInstruction::Done     => break,
-                super::FileInstruction::Error(e) => panic!("{:?}", e),
-                _ => {}
+            if let super::FileInstruction::Error(e) = msg {
+                panic!("{:?}", e);
             }
         }
 
