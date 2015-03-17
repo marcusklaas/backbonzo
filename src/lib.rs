@@ -95,9 +95,9 @@ impl BackupManager {
     pub fn update(&mut self, block_bytes: usize, deadline: time::Tm) -> BonzoResult<BackupSummary> {
         let channel_receiver = export::start_export_thread(
             &self.database,
-            self.encryption_key.clone(),
+            &self.encryption_key,
             block_bytes,
-            self.source_path.clone()
+            &self.source_path
         );
         
         let mut summary = BackupSummary::new();
@@ -108,7 +108,6 @@ impl BackupManager {
             }            
             
             match msg {
-                FileInstruction::Done                => break,
                 FileInstruction::Error(e)            => return Err(e),
                 FileInstruction::NewBlock(ref block) => try!(self.handle_new_block(block, &mut summary)),
                 FileInstruction::Complete(ref file)  => try!(self.handle_new_file (file,  &mut summary))

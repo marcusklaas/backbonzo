@@ -41,8 +41,8 @@ priority todo list
 ------------------
 
 - [ ] write some documentation on how to use backbonzo
-- [ ] add clean up command
-- [ ] process file blocks in parallel
+- [x] add clean up command
+- [x] process file blocks in parallel
 
 legal
 -----

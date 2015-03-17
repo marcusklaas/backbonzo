@@ -120,6 +120,13 @@ fn backup_and_restore() {
         assert!(file.sync_all().is_ok());
     }
 
+    {
+        let subdir_path = source_path.join("test").join("welcomg!");
+        let mut file = File::create(&subdir_path).unwrap();
+        assert!(file.write_all(bytes).is_ok());
+        assert!(file.sync_all().is_ok());
+    }
+
     assert!(
         backbonzo::init(
             source_path.clone(),
@@ -163,6 +170,7 @@ fn backup_and_restore() {
 
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
     assert!(restore_path.join("welcome.txt").exists());
+    assert!(restore_path.join("test").join("welcomg!").exists());
 }
 
 fn epoch_milliseconds() -> u64 {
