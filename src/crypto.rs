@@ -1,15 +1,59 @@
-use super::rust_crypto::aes::{cbc_decryptor, cbc_encryptor, KeySize};
-use super::rust_crypto::digest::Digest;
-use super::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer, BufferResult};
-use super::rust_crypto::blockmodes::PkcsPadding;
-use super::rust_crypto::sha2::Sha256;
-use super::rust_crypto::pbkdf2::pbkdf2;
-use super::rust_crypto::hmac::Hmac;
-use super::rust_crypto::symmetriccipher::SymmetricCipherError;
+extern crate "crypto" as rust_crypto;
+
+use self::rust_crypto::aes::{cbc_decryptor, cbc_encryptor, KeySize};
+use self::rust_crypto::digest::Digest;
+use self::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer, BufferResult};
+use self::rust_crypto::blockmodes::PkcsPadding;
+use self::rust_crypto::sha2::Sha256;
+use self::rust_crypto::pbkdf2::pbkdf2;
+use self::rust_crypto::hmac::Hmac;
+use self::rust_crypto::symmetriccipher::SymmetricCipherError;
 
 use super::file_chunks::file_chunks;
 use std::path::Path;
 use std::io;
+use std::fmt;
+use std::error::{FromError, Error};
+
+pub struct CryptoError;
+
+impl Error for CryptoError {
+    fn description(&self) -> &str {
+        "Symmetric cipher error. Bad key?"
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        None
+    }
+}
+
+impl FromError<SymmetricCipherError> for CryptoError {
+    fn from_error(error: SymmetricCipherError) -> CryptoError {
+        CryptoError
+    }
+}
+
+impl fmt::Display for CryptoError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.description())
+    }
+}
+
+pub trait CryptoScheme {
+    fn new(password: &str) -> Self;
+
+    fn hash_password(&self) -> String;
+
+    fn encrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;
+
+    fn decrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;
+}
+
+pub trait HashScheme {
+    fn hash_block(&self, block: &[u8]) -> String;
+
+    fn hash_file(&self, path: &Path) -> io::Result<String>;
+}
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
@@ -54,7 +98,7 @@ pub fn hash_block(block: &[u8]) -> String {
 }
 
 // FIXME: we should still refactor this so it shares less code with decrypt_block
-pub fn encrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, SymmetricCipherError> {
+pub fn encrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, CryptoError> {
     let iv: [u8; 16] = [0; 16];
     let mut encryptor = cbc_encryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
     let mut final_result = Vec::<u8>::new();
@@ -73,7 +117,7 @@ pub fn encrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, SymmetricC
 
 // Decrypts a given block of AES256-CBC data using a 32 byte key and 16 byte
 // initialization vector. Returns error on incorrect passwords 
-pub fn decrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, SymmetricCipherError> {    
+pub fn decrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, CryptoError> {    
     let iv: [u8; 16] = [0; 16];
     let mut decryptor = cbc_decryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
     let mut final_result = Vec::<u8>::new();

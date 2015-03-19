@@ -2,13 +2,13 @@ use std::error::{Error, FromError};
 use std::io;
 use std::fmt;
 
-use super::rust_crypto::symmetriccipher::SymmetricCipherError;
-use super::database::SqliteError;
+use super::crypto::CryptoError;
+use super::database::DatabaseError;
 
 pub enum BonzoError {
-    Database(SqliteError),
+    Database(DatabaseError),
     Io(io::Error),
-    Crypto(SymmetricCipherError),
+    Crypto(CryptoError),
     Other(String)
 }
 
@@ -18,20 +18,37 @@ impl BonzoError {
     }
 }
 
+// TODO: implement!
+impl Error for BonzoError {
+    fn description(&self) -> &str {
+        match self {
+            &BonzoError::Database(ref e) => e.description(),
+            _                            => ""
+        }
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match self {
+            &BonzoError::Database(ref e) => Some(e),
+            _                            => None
+        }
+    }
+}
+
 impl FromError<io::Error> for BonzoError {
     fn from_error(error: io::Error) -> BonzoError {
         BonzoError::Io(error)
     }
 }
 
-impl FromError<SymmetricCipherError> for BonzoError {
-    fn from_error(error: SymmetricCipherError) -> BonzoError {
+impl FromError<CryptoError> for BonzoError {
+    fn from_error(error: CryptoError) -> BonzoError {
         BonzoError::Crypto(error)
     }
 }
 
-impl FromError<SqliteError> for BonzoError {
-    fn from_error(error: SqliteError) -> BonzoError {
+impl FromError<DatabaseError> for BonzoError {
+    fn from_error(error: DatabaseError) -> BonzoError {
         BonzoError::Database(error)
     }
 }
@@ -39,9 +56,9 @@ impl FromError<SqliteError> for BonzoError {
 impl fmt::Debug for BonzoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            BonzoError::Database(ref e) => write!(f, "Database error: {}", e.message),
+            BonzoError::Database(ref e) => write!(f, "Database error: {}", e),
             BonzoError::Io(ref e)       => write!(f, "IO error ({:?}): {}, {}", e.kind(), <io::Error as Error>::description(e), e.to_string()),
-            BonzoError::Crypto(..)      => write!(f, "Crypto error!"),
+            BonzoError::Crypto(ref e)   => write!(f, "Crypto error: {}", e),
             BonzoError::Other(ref str)  => write!(f, "Error: {}", str)
         }
     }

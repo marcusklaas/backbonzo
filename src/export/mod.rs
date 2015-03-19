@@ -153,10 +153,10 @@ pub fn process_block(clear_text: &[u8], key: &[u8; 32]) -> BonzoResult<Vec<u8>> 
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block_size: usize, source_path: &Path) -> mpsc::Consumer<'static, FileInstruction> {
+pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block_size: usize, source_path: &Path) -> BonzoResult<mpsc::Consumer<'static, FileInstruction>> {
     let (block_transmitter, block_receiver) = unsafe { mpsc::new(CHANNEL_BUFFER_SIZE) };
     let (path_transmitter, path_receiver) = unsafe { spmc::new(CHANNEL_BUFFER_SIZE) };
-    let sender_database = database.clone();
+    let sender_database = try!(database.try_clone());
     let path = PathBuf::new(source_path);
 
     // spawn thread that sends file paths
@@ -167,7 +167,7 @@ pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block
     // spawn encoder threads
     for _ in 0..EXPORT_THREAD_COUNT {
         let mut transmitter = block_transmitter.clone();
-        let new_database = database.clone();
+        let new_database = try!(database.try_clone());
         let key = encryption_key.clone();
         let receiver = path_receiver.clone();
         
@@ -190,7 +190,7 @@ pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block
         });
     }
 
-    block_receiver
+    Ok(block_receiver)
 }
 
 #[cfg(test)]

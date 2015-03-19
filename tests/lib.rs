@@ -90,12 +90,7 @@ fn backup_no_init() {
         deadline
     );
 
-    let is_expected = match backup_result {
-        Err(BonzoError::Database(e)) => e.message.as_slice() == "unable to open database file",
-        _                            => false
-    };
-
-    assert!(is_expected);
+    assert_eq!(format!("{}", backup_result.unwrap_err()).as_slice(), "Database error: unable to open database file");
 }
 
 #[test]
