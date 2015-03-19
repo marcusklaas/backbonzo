@@ -54,6 +54,12 @@ enum Directory {
     Child(i64)
 }
 
+#[derive(Copy, Eq, PartialEq, Debug)]
+pub struct FileId(u64);
+
+#[derive(Copy, Eq, PartialEq, Debug)]
+pub struct BlockId(u64);
+
 pub struct BackupManager {
     database: Database,
     source_path: PathBuf,
