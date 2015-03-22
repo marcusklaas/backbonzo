@@ -28,7 +28,7 @@ impl Error for CryptoError {
 }
 
 impl FromError<SymmetricCipherError> for CryptoError {
-    fn from_error(error: SymmetricCipherError) -> CryptoError {
+    fn from_error(_: SymmetricCipherError) -> CryptoError {
         CryptoError
     }
 }

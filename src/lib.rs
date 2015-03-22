@@ -5,6 +5,7 @@
 #![feature(core)]
 #![feature(plugin)]
 #![feature(fs_time)]
+#![feature(thread_sleep)]
 
 #![plugin(regex_macros)]
 

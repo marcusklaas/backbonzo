@@ -208,7 +208,7 @@ mod test {
 
         let file_count = 3 * super::CHANNEL_BUFFER_SIZE;
 
-        for i in range(0, file_count) {
+        for i in 0..file_count {
             let content = format!("file{}", i);
             let file_path = temp_dir.path().join(content.as_slice());
 
@@ -226,7 +226,7 @@ mod test {
         ).unwrap();
 
         let database = super::super::database::Database::from_file(database_path).unwrap();
-        let receiver = super::start_export_thread(&database, &key, 10000000, temp_dir.path());
+        let receiver = super::start_export_thread(&database, &key, 10000000, temp_dir.path()).unwrap();
 
         // give the export thread plenty of time to process all files
         sleep(Duration::milliseconds(200));
