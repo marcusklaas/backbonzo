@@ -244,6 +244,12 @@ impl BackupManager {
         
         try!(self.database.remove_old_aliases(timestamp));
         
+        try!(self.database.remove_unused_files());
+        
+        self.clean_unused_blocks()
+    }
+
+    fn clean_unused_blocks(&self) -> BonzoResult<()> {
         let unused_block_list = try!(self.database.get_unused_blocks());
 
         for (id, hash) in unused_block_list {
@@ -252,7 +258,7 @@ impl BackupManager {
             try!(remove_file(&path));
             try!(self.database.remove_block(id));
         }
-        
+
         Ok(())
     }
 

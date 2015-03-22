@@ -376,6 +376,7 @@ impl Database {
         ).map_err(FromError::from_error)
     }
 
+    // TODO: return number of deleted rows?
     pub fn remove_old_aliases(&self, timestamp: u64) -> DatabaseResult<()> {
         self.connection.execute(
             "DELETE FROM alias
@@ -386,6 +387,15 @@ impl Database {
                     id NOT IN (SELECT MAX(id) FROM alias GROUP BY name, directory_id)                    
                );",
             &[&(timestamp as i64)]
+        ).map(|_| ()).map_err(FromError::from_error)
+    }
+
+    // TODO: return number of deleted rows?
+    pub fn remove_unused_files(&self) -> DatabaseResult<()> {
+        self.connection.execute(
+            "DELETE FROM file
+              WHERE id not in (SELECT file_id FROM alias);",
+            &[]
         ).map(|_| ()).map_err(FromError::from_error)
     }
 
