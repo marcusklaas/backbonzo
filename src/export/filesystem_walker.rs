@@ -221,7 +221,7 @@ pub fn newest_first_walker(dir: &Path, recursive: bool) -> io::Result<NewestFirs
 
 #[cfg(test)]
 mod test {
-    use std::old_io::Timer;
+    use std::thread::sleep;
     use std::time::Duration;
     use std::fs::create_dir_all;
 
@@ -241,28 +241,28 @@ mod test {
             write_to_disk(&file_path, b"test123").unwrap();
         }
 
-        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+        sleep(Duration::milliseconds(50));
 
         {
             let file_path = sub_dir.join("firstfile");
             write_to_disk(&file_path, b"yolo").unwrap();
         }
 
-        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+        sleep(Duration::milliseconds(50));
 
         {
             let file_path = root_path.join("second");
             write_to_disk(&file_path, b"hello").unwrap();
         }
 
-        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+        sleep(Duration::milliseconds(50));
 
         {
             let file_path = root_path.join("third");
             write_to_disk(&file_path, b"waddaa").unwrap();
         }
 
-        Timer::new().unwrap().sleep(Duration::milliseconds(50));
+        sleep(Duration::milliseconds(50));
 
         {
             let file_path = sub_dir.join("deadlast");

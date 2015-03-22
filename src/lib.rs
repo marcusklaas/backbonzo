@@ -49,7 +49,7 @@ pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 pub static MAX_ALIAS_AGE: u64 = 183 * 24 * 60 * 60 * 1000; // TODO: this should be a parameter
 
 #[derive(Copy, Eq, PartialEq, Debug)]
-enum Directory {
+pub enum Directory {
     Root,
     Child(i64)
 }

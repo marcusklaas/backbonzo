@@ -195,7 +195,7 @@ pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block
 
 #[cfg(test)]
 mod test {
-    use std::old_io::Timer;
+    use std::thread::sleep;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -229,7 +229,7 @@ mod test {
         let receiver = super::start_export_thread(&database, &key, 10000000, temp_dir.path());
 
         // give the export thread plenty of time to process all files
-        Timer::new().unwrap().sleep(Duration::milliseconds(200));
+        sleep(Duration::milliseconds(200));
 
         // we should receive two messages for each file: one for its block and
         // one for the file completion.

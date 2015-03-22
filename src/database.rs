@@ -59,7 +59,7 @@ impl fmt::Display for DatabaseError {
 
 unsafe impl Send for DatabaseError { }
 
-type DatabaseResult<T> = Result<T, DatabaseError>;
+pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 use self::rusqlite::SqliteError;
 
