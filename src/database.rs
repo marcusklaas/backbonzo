@@ -5,6 +5,7 @@ extern crate "libsqlite3-sys" as libsqlite;
 use super::{epoch_milliseconds, Directory};
 use super::error::{BonzoResult, BonzoError};
 use super::iter_reduce::{Reduce, IteratorReduce};
+use super::FileId;
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags, SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
 use self::rusqlite::types::{FromSql, ToSql};
@@ -86,6 +87,20 @@ impl FromSql for Directory {
     }
 }
 
+impl FromSql for FileId {
+    unsafe fn column_result(stmt: *mut libsqlite::sqlite3_stmt, col: c_int) -> SqliteResult<FileId> {
+        <i64 as FromSql>::column_result(stmt, col).map(|i| FileId(i as u64))
+    }
+}
+
+impl ToSql for FileId {
+    unsafe fn bind_parameter(&self, stmt: *mut libsqlite::sqlite3_stmt, col: c_int) -> c_int {
+        let i = self.0 as i64;
+
+        i.bind_parameter(stmt, col)
+    }
+}
+
 // An iterator over files in a state determined by the given timestamp. A file
 // is represented by its path and a list of block id's.
 // TODO: should be associated type?
@@ -93,7 +108,7 @@ pub struct Aliases<'a> {
     database: &'a Database,
     path: PathBuf, // FIXME: maybe this can be a &Path instead?
     timestamp: u64,
-    file_list: Vec<(u32, String)>,
+    file_list: Vec<(FileId, String)>,
     directory_list: Vec<Directory>,
     subdirectory: Option<Box<Aliases<'a>>>
 }
@@ -227,13 +242,13 @@ impl Database {
         )
     }
 
-    pub fn get_directory_content_at(&self, directory: Directory, timestamp: u64) -> DatabaseResult<Vec<(u32, String)>> {
+    pub fn get_directory_content_at(&self, directory: Directory, timestamp: u64) -> DatabaseResult<Vec<(FileId, String)>> {
         self.query_and_collect(
             "SELECT alias.file_id, alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name) a ON alias.id = a.max_id
             WHERE file_id IS NOT NULL;",
             &[&directory, &(timestamp as i64)],
-            |row| (row.get::<i64>(0) as u32, row.get(1))
+            |row| (row.get::<FileId>(0), row.get(1))
         )
     }
 
@@ -255,10 +270,10 @@ impl Database {
         ).map_err(FromError::from_error)
     }
 
-    fn get_file_block_list(&self, file_id: u32) -> DatabaseResult<Vec<u32>> {
+    fn get_file_block_list(&self, file_id: FileId) -> DatabaseResult<Vec<u32>> {
         self.query_and_collect(
             "SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;",
-            &[&(file_id as i64)],
+            &[&file_id],
             |row| row.get::<i64>(0) as u32
         ).map_err(FromError::from_error)
     }
