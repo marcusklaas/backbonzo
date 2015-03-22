@@ -133,24 +133,22 @@ impl<'a> Aliases<'a> {
     }
 }
 
-// FIXME: return Result<(PathBuf, Vec<BlockId>)>, so we can propagate errors!
-// TODO: make newtype for file id, block_id
 impl<'a> Iterator for Aliases<'a> {
-    type Item = (PathBuf, Vec<BlockId>);
+    type Item = DatabaseResult<(PathBuf, Vec<BlockId>)>;
     
-    fn next(&mut self) -> Option<(PathBuf, Vec<BlockId>)> {
+    fn next(&mut self) -> Option<DatabaseResult<(PathBuf, Vec<BlockId>)>> {
         // return file from child directory
         loop {
             if let Some(ref mut dir) = self.subdirectory {
-                if let Some(alias) = dir.next() {
-                    return Some(alias);
+                if let result@Some(_) = dir.next() {
+                    return result;
                 }
             }
 
             match self.directory_list.pop() {
                 None     => break,
-                Some(id) => self.subdirectory =
-                    self.database
+                Some(id) => {
+                    let subdirectory = self.database
                         .get_directory_name(id)
                         .and_then(|directory_name| {
                             Aliases::new(
@@ -159,17 +157,26 @@ impl<'a> Iterator for Aliases<'a> {
                                 id,
                                 self.timestamp
                             )
-                        })
-                        .ok()
-                        .map(|alias| Box::new(alias))
+                        });
+
+                    match subdirectory {
+                        Ok(subdir) => { self.subdirectory = Some(Box::new(subdir)); },
+                        Err(e)     => {
+                            self.directory_list.push(id);
+
+                            return Some(Err(e));
+                        }
+                    }
+                }
             }
         }
 
         // return file from current directory
-        self.file_list.pop().and_then(|(id, name)|
-            self.database.get_file_block_list(id).ok().map(|block_list|
+        self.file_list.pop().map(|(id, name)| {
+            self.database.get_file_block_list(id).map(|block_list| {
                 (self.path.join(name.as_slice()), block_list)
-        ))
+            })
+        })
     }
 }
 

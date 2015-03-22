@@ -26,6 +26,7 @@ use std::fs::{remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
 use std::ffi::AsOsStr;
 use std::env::current_dir;
+use std::error::FromError;
 
 use tempdir::TempDir;
 use bzip2::reader::BzDecompressor;
@@ -131,9 +132,16 @@ impl BackupManager {
             Directory::Root,
             timestamp
         ))
-            .filter(|&(ref path, _)| pattern.matches_path(path))
-            .map(|(ref path, ref block_list)| {
-                self.restore_file(path, block_list.as_slice(), &mut summary)
+            .filter(|alias| match alias {
+                &Err(..)           => true,
+                &Ok((ref path, _)) => pattern.matches_path(path)
+            })
+            .map(|alias| {
+                alias
+                    .map_err(FromError::from_error)
+                    .and_then(|(ref path, ref block_list)| {
+                        self.restore_file(path, &block_list, &mut summary)
+                    })
             })
             .reduce()
             .and_then(move |_| Ok(summary))
@@ -188,14 +196,14 @@ impl BackupManager {
             try!(self.database.persist_alias(
                 file.directory,
                 file_id,
-                file.filename.as_slice(),
+                &file.filename,
                 Some(file.last_modified)
             ));
 
             return Ok(summary.add_file());
         }
         
-        let block_id_list = try!(
+        let block_id_list: Vec<_> = try!(
             file.block_reference_list
             .iter()
             .map(|reference| match *reference {
@@ -205,15 +213,15 @@ impl BackupManager {
                     id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {}", hash)))
                 }
             })
-            .collect::<BonzoResult<Vec<_>>>()
+            .collect()
         );
         
         try!(self.database.persist_file(
             file.directory,
-            file.filename.as_slice(),
-            file.hash.as_slice(),
+            &file.filename,
+            &file.hash,
             file.last_modified,
-            block_id_list.as_slice()
+            &block_id_list
         ));
 
         summary.add_file();
