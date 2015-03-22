@@ -12,6 +12,7 @@ use super::crypto;
 use super::file_chunks::file_chunks;
 use super::comm::mpsc::bounded_fast as mpsc;
 use super::comm::spmc::bounded_fast as spmc;
+use super::BlockId;
 
 use self::filesystem_walker::{send_files, FileInfoMessage};
 
@@ -43,7 +44,7 @@ pub struct FileBlock {
 
 #[derive(Debug)]
 pub enum BlockReference {
-    ById(u32),
+    ById(BlockId),
     ByHash(String)
 }
 

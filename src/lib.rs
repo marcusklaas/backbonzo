@@ -26,6 +26,7 @@ use std::fs::{remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
 use std::ffi::AsOsStr;
 use std::env::current_dir;
+use std::error::FromError;
 
 use tempdir::TempDir;
 use bzip2::reader::BzDecompressor;
@@ -131,9 +132,16 @@ impl BackupManager {
             Directory::Root,
             timestamp
         ))
-            .filter(|&(ref path, _)| pattern.matches_path(path))
-            .map(|(ref path, ref block_list)| {
-                self.restore_file(path, block_list.as_slice(), &mut summary)
+            .filter(|alias| match alias {
+                &Err(..)           => true,
+                &Ok((ref path, _)) => pattern.matches_path(path)
+            })
+            .map(|alias| {
+                alias
+                    .map_err(FromError::from_error)
+                    .and_then(|(ref path, ref block_list)| {
+                        self.restore_file(path, &block_list, &mut summary)
+                    })
             })
             .reduce()
             .and_then(move |_| Ok(summary))
@@ -141,13 +149,13 @@ impl BackupManager {
 
     // Restores a single file by decrypting and inflating a sequence of blocks
     // and writing them to the given path in order
-    pub fn restore_file(&self, path: &Path, block_list: &[u32], summary: &mut RestorationSummary) -> BonzoResult<()> {
+    pub fn restore_file(&self, path: &Path, block_list: &[BlockId], summary: &mut RestorationSummary) -> BonzoResult<()> {
         try!(create_parent_dir(path));
         
         let mut file = try!(File::create(path));
 
         for block_id in block_list.iter() {
-            let hash = try!(self.database.block_from_id(*block_id));
+            let hash = try!(self.database.block_hash_from_id(*block_id));
             let block_path = block_output_path(&self.backup_path, hash.as_slice());
             let bytes = try!(load_processed_block(&block_path, &*self.encryption_key));
             let byte_slice = bytes.as_slice();
@@ -188,14 +196,14 @@ impl BackupManager {
             try!(self.database.persist_alias(
                 file.directory,
                 file_id,
-                file.filename.as_slice(),
+                &file.filename,
                 Some(file.last_modified)
             ));
 
             return Ok(summary.add_file());
         }
         
-        let block_id_list = try!(
+        let block_id_list: Vec<_> = try!(
             file.block_reference_list
             .iter()
             .map(|reference| match *reference {
@@ -205,15 +213,15 @@ impl BackupManager {
                     id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {}", hash)))
                 }
             })
-            .collect::<BonzoResult<Vec<u32>>>()
+            .collect()
         );
         
         try!(self.database.persist_file(
             file.directory,
-            file.filename.as_slice(),
-            file.hash.as_slice(),
+            &file.filename,
+            &file.hash,
             file.last_modified,
-            block_id_list.as_slice()
+            &block_id_list
         ));
 
         summary.add_file();
