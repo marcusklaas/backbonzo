@@ -15,7 +15,7 @@ use time::get_time;
 use std::path::{PathBuf, AsPath};
 use tempdir::TempDir;
 
-fn open_read_write(path: &AsPath) -> io::Result<File> {
+fn open_read_write<P: AsPath>(path: P) -> io::Result<File> {
     OpenOptions::new().read(true).write(true).append(false).open(path)
 }
 
@@ -90,12 +90,7 @@ fn backup_no_init() {
         deadline
     );
 
-    let is_expected = match backup_result {
-        Err(BonzoError::Database(e)) => e.message.as_slice() == "unable to open database file",
-        _                            => false
-    };
-
-    assert!(is_expected);
+    assert_eq!(format!("{}", backup_result.unwrap_err()).as_slice(), "Database error: unable to open database file");
 }
 
 #[test]
@@ -166,7 +161,7 @@ fn backup_and_restore() {
     let mut buffer = Vec::new();
     restored_file.read_to_end(&mut buffer).unwrap();
     
-    assert_eq!(bytes, buffer.as_slice());
+    assert_eq!(bytes.as_slice(), buffer.as_slice());
 
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
     assert!(restore_path.join("welcome.txt").exists());

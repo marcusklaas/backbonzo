@@ -11,14 +11,59 @@ use self::rusqlite::types::{FromSql, ToSql};
 use self::libc::c_int;
 
 use std::io::Read;
-use std::fs::File;
+use std::fs::{PathExt, File};
 use std::path::PathBuf;
-use std::fs::PathExt;
 use std::collections::HashSet;
 use std::iter::FromIterator;
+use std::error::{FromError, Error};
+use std::fmt;
 
-pub use self::rusqlite::SqliteError;
+pub struct DatabaseError {
+    description: String,
+    cause: Option<Box<Error>>
+}
 
+impl Error for DatabaseError {
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match self.cause {
+            Some(ref b) => Some(&**b),
+            None        => None
+        }
+    }
+}
+
+impl FromError<SqliteError> for DatabaseError {
+    fn from_error(error: SqliteError) -> DatabaseError {
+        DatabaseError {
+            description: error.description().to_string(),
+            cause: Some(Box::new(error))
+        }
+    }
+}
+
+impl fmt::Debug for DatabaseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl fmt::Display for DatabaseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.description())
+    }
+}
+
+unsafe impl Send for DatabaseError { }
+
+pub type DatabaseResult<T> = Result<T, DatabaseError>;
+
+use self::rusqlite::SqliteError;
+
+// TODO: this should be easier now
 impl ToSql for Directory {
     unsafe fn bind_parameter(&self, stmt: *mut libsqlite::sqlite3_stmt, col: c_int) -> c_int {
         let i = match *self {
@@ -42,7 +87,8 @@ impl FromSql for Directory {
 }
 
 // An iterator over files in a state determined by the given timestamp. A file
-// is represented by its path and a list of block id's. 
+// is represented by its path and a list of block id's.
+// TODO: should be associated type?
 pub struct Aliases<'a> {
     database: &'a Database,
     path: PathBuf, // FIXME: maybe this can be a &Path instead?
@@ -53,7 +99,7 @@ pub struct Aliases<'a> {
 }
 
 impl<'a> Aliases<'a> {
-    pub fn new(database: &'a Database, path: PathBuf, directory: Directory, timestamp: u64) -> SqliteResult<Aliases<'a>> {
+    pub fn new(database: &'a Database, path: PathBuf, directory: Directory, timestamp: u64) -> DatabaseResult<Aliases<'a>> {
         Ok(Aliases {
             database: database,
             path: path,
@@ -65,6 +111,8 @@ impl<'a> Aliases<'a> {
     }
 }
 
+// FIXME: return Result<(PathBuf, Vec<u32>)>, so we can propagate errors!
+// TODO: make newtype for file id, block_id
 impl<'a> Iterator for Aliases<'a> {
     type Item = (PathBuf, Vec<u32>);
     
@@ -80,14 +128,18 @@ impl<'a> Iterator for Aliases<'a> {
             match self.directory_list.pop() {
                 None     => break,
                 Some(id) => self.subdirectory =
-                    self.database.get_directory_name(id).and_then(|directory_name| {
-                        Aliases::new(
-                            self.database,
-                            self.path.join(&directory_name),
-                            id,
-                            self.timestamp
-                        )
-                    }).ok().map(|alias| Box::new(alias))
+                    self.database
+                        .get_directory_name(id)
+                        .and_then(|directory_name| {
+                            Aliases::new(
+                                self.database,
+                                self.path.join(&directory_name),
+                                id,
+                                self.timestamp
+                            )
+                        })
+                        .ok()
+                        .map(|alias| Box::new(alias))
             }
         }
 
@@ -104,23 +156,32 @@ pub struct Database {
     path: PathBuf
 }
 
-impl Clone for Database {
-    fn clone(&self) -> Database {
-        Database::from_file(self.path.clone()).unwrap()
-    }
-}
-
 unsafe impl Send for Database { }
 
 impl Database {
-    fn new(path: PathBuf, flags: SqliteOpenFlags) -> BonzoResult<Database> {
+    fn new(path: PathBuf, flags: SqliteOpenFlags) -> DatabaseResult<Database> {
         Ok(Database {
             connection: try!(SqliteConnection::open_with_flags(&path, flags)),
             path: path
         })
     }
+    
+    pub fn from_file(path: PathBuf) -> DatabaseResult<Database> {
+        Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE)
+    }
 
-    fn query_and_collect<T, F, C>(&self, sql: &str, params: &[&ToSql], f: F) -> SqliteResult<C>
+    pub fn create(path: PathBuf) -> BonzoResult<Database> {
+        match path.exists() {
+            true  => Err(BonzoError::from_str("Database file already exists")),
+            false => Ok(try!(Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE)))
+        }
+    }
+    
+    pub fn try_clone(&self) -> DatabaseResult<Database> {
+        Database::from_file(self.path.clone())
+    }
+
+    fn query_and_collect<T, F, C>(&self, sql: &str, params: &[&ToSql], f: F) -> DatabaseResult<C>
                                   where F: Fn(SqliteRow) -> T,
                                         C: FromIterator<T> {
         let mut statement = try!(self.connection.prepare(sql));
@@ -136,21 +197,15 @@ impl Database {
                     })
                     .collect()
             })
-    }
-    
-    pub fn from_file(path: PathBuf) -> BonzoResult<Database> {
-        Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE)
-    }
-
-    pub fn create(path: PathBuf) -> BonzoResult<Database> {
-        match path.exists() {
-            true  => Err(BonzoError::from_str("Database file already exists")),
-            false => Database::new(path, SQLITE_OPEN_FULL_MUTEX | SQLITE_OPEN_READ_WRITE | SQLITE_OPEN_CREATE)
-        }
+            .map_err(FromError::from_error)
     }
 
     pub fn to_bytes(self) -> BonzoResult<Vec<u8>> {
-        try!(self.connection.close());
+        try!(
+            self.connection
+                .close()
+                .map_err(DatabaseError::from_error)
+        );
 
         let mut buffer = Vec::new();
 
@@ -163,8 +218,8 @@ impl Database {
 
         Ok(buffer)
     }
-
-    pub fn get_subdirectories(&self, directory: Directory) -> SqliteResult<Vec<Directory>> {
+    
+    pub fn get_subdirectories(&self, directory: Directory) -> DatabaseResult<Vec<Directory>> {
         self.query_and_collect(
             "SELECT id FROM directory WHERE parent_id = $1;",
             &[&directory],
@@ -172,7 +227,7 @@ impl Database {
         )
     }
 
-    pub fn get_directory_content_at(&self, directory: Directory, timestamp: u64) -> SqliteResult<Vec<(u32, String)>> {
+    pub fn get_directory_content_at(&self, directory: Directory, timestamp: u64) -> DatabaseResult<Vec<(u32, String)>> {
         self.query_and_collect(
             "SELECT alias.file_id, alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND timestamp <= $2 GROUP BY name) a ON alias.id = a.max_id
@@ -182,7 +237,7 @@ impl Database {
         )
     }
 
-    pub fn get_directory_filenames(&self, directory: Directory) -> SqliteResult<HashSet<String>> {
+    pub fn get_directory_filenames(&self, directory: Directory) -> DatabaseResult<HashSet<String>> {
         self.query_and_collect(
             "SELECT alias.name FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 GROUP BY name) a ON alias.id = a.max_id
@@ -192,23 +247,23 @@ impl Database {
         )
     }
 
-    fn get_directory_name(&self, directory: Directory) -> SqliteResult<String> {
+    fn get_directory_name(&self, directory: Directory) -> DatabaseResult<String> {
         self.connection.query_row_safe(
             "SELECT name FROM directory WHERE id = $1;",
             &[&directory],
             |row| row.get::<String>(0)
-        )
+        ).map_err(FromError::from_error)
     }
 
-    fn get_file_block_list(&self, file_id: u32) -> SqliteResult<Vec<u32>> {
+    fn get_file_block_list(&self, file_id: u32) -> DatabaseResult<Vec<u32>> {
         self.query_and_collect(
             "SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;",
             &[&(file_id as i64)],
             |row| row.get::<i64>(0) as u32
-        )
+        ).map_err(FromError::from_error)
     }
 
-    pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> SqliteResult<()> {
+    pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[u32]) -> DatabaseResult<()> {
         let transaction = try!(self.connection.transaction());
 
         try!(self.connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
@@ -224,10 +279,10 @@ impl Database {
         
         try!(self.persist_alias(directory, Some(file_id as u32), filename, Some(last_modified)));
 
-        transaction.commit()
+        transaction.commit().map_err(FromError::from_error)
     }
 
-    pub fn persist_alias(&self, directory: Directory, file_id: Option<u32>, filename: &str, last_modified: Option<u64>) -> SqliteResult<()> {
+    pub fn persist_alias(&self, directory: Directory, file_id: Option<u32>, filename: &str, last_modified: Option<u64>) -> DatabaseResult<()> {
         let signed_file_id = file_id.map(|unsigned| unsigned as i64);
         let signed_modified = last_modified.map(|unsigned| unsigned as i64);
         let timestamp = Some(epoch_milliseconds() as i64);
@@ -235,14 +290,15 @@ impl Database {
         self.connection.execute(
             "INSERT INTO alias (directory_id, file_id, name, modified, timestamp) VALUES ($1, $2, $3, $4, $5);",
             &[&directory, &signed_file_id, &filename, &signed_modified, &timestamp]
-        ).map(|_|())
+        ).map(|_|()).map_err(FromError::from_error)
     }
 
-    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> SqliteResult<()> {         
+    pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> DatabaseResult<()> {         
         self.persist_alias(directory, None, filename, None)
+            .map_err(FromError::from_error)
     }
 
-    pub fn persist_block(&self, hash: &str) -> SqliteResult<u32> {
+    pub fn persist_block(&self, hash: &str) -> DatabaseResult<u32> {
         try!(self.connection.execute(
             "INSERT INTO block (hash) VALUES ($1);",
             &[&hash]
@@ -251,34 +307,33 @@ impl Database {
         Ok(self.connection.last_insert_rowid() as u32)
     }
 
-    pub fn file_from_hash(&self, hash: &str) -> SqliteResult<Option<u32>> {
+    pub fn file_from_hash(&self, hash: &str) -> DatabaseResult<Option<u32>> {
         self.connection.query_row_safe(
             "SELECT SUM(id) FROM file WHERE hash = $1;",
             &[&hash],
             |row| row.get::<Option<i64>>(0).map(|signed| signed as u32)
-        )
+        ).map_err(FromError::from_error)
     }
 
-    pub fn alias_known(&self, directory: Directory, filename: &str, modified: u64) -> SqliteResult<bool> {
+    pub fn alias_known(&self, directory: Directory, filename: &str, modified: u64) -> DatabaseResult<bool> {
         self.connection.query_row_safe(
             "SELECT COUNT(alias.id) FROM alias
             INNER JOIN (SELECT MAX(id) AS max_id FROM alias WHERE directory_id = $1 AND name = $2) a ON alias.id = a.max_id
             WHERE modified >= $3 AND file_id IS NOT NULL;",
             &[&directory, &filename, &(modified as i64)],
             |row| row.get::<i64>(0) > 0
-        )
+        ).map_err(FromError::from_error)
     }
 
-    // Fetches the block hash
-    pub fn block_from_id(&self, id: u32) -> SqliteResult<String> {
+    pub fn block_from_id(&self, id: u32) -> DatabaseResult<String> {
         self.connection.query_row_safe(
             "SELECT hash FROM block WHERE id = $1;",
             &[&(id as i64)],
             |row| row.get::<String>(0)
-        )
+        ).map_err(FromError::from_error)
     }
 
-    pub fn block_id_from_hash(&self, hash: &str) -> SqliteResult<Option<u32>> {
+    pub fn block_id_from_hash(&self, hash: &str) -> DatabaseResult<Option<u32>> {
         self.connection.query_row_safe(
             "SELECT SUM(id) FROM block WHERE hash = $1;",
             &[&hash],
@@ -287,10 +342,10 @@ impl Database {
                     signed as u32
                 })
             }
-        )
+        ).map_err(FromError::from_error)
     }
 
-    pub fn get_directory(&self, parent: Directory, name: &str) -> SqliteResult<Directory> {
+    pub fn get_directory(&self, parent: Directory, name: &str) -> DatabaseResult<Directory> {
         let possible_directory: Option<Directory> = try!({
             let select_query = "SELECT SUM(id) FROM directory WHERE name = $1 AND parent_id = $2;"; 
             self.connection.query_row_safe(select_query, &[&name, &parent], |row| row.get(0))
@@ -308,19 +363,20 @@ impl Database {
         Ok(Directory::Child(self.connection.last_insert_rowid()))
     }
 
-    pub fn set_key(&self, key: &str, value: &str) -> SqliteResult<i32> {
+    pub fn set_key(&self, key: &str, value: &str) -> DatabaseResult<i32> {
         self.connection.execute("INSERT INTO setting (key, value) VALUES ($1, $2);", &[&key, &value])
+            .map_err(FromError::from_error)
     }
 
-    pub fn get_key(&self, key: &str) -> SqliteResult<Option<String>> {
+    pub fn get_key(&self, key: &str) -> DatabaseResult<Option<String>> {
         self.connection.query_row_safe(
             "SELECT value FROM setting WHERE key = $1;",
             &[&key],
             |row| row.get(0)
-        )
+        ).map_err(FromError::from_error)
     }
 
-    pub fn remove_old_aliases(&self, timestamp: u64) -> SqliteResult<()> {
+    pub fn remove_old_aliases(&self, timestamp: u64) -> DatabaseResult<()> {
         self.connection.execute(
             "DELETE FROM alias
               WHERE timestamp < $1
@@ -330,10 +386,10 @@ impl Database {
                     id NOT IN (SELECT MAX(id) FROM alias GROUP BY name, directory_id)                    
                );",
             &[&(timestamp as i64)]
-        ).map(|_| ())
+        ).map(|_| ()).map_err(FromError::from_error)
     }
 
-    pub fn get_unused_blocks(&self) -> SqliteResult<Vec<(u32, String)>> {
+    pub fn get_unused_blocks(&self) -> DatabaseResult<Vec<(u32, String)>> {
         self.query_and_collect(
             "SELECT id, hash FROM block
              WHERE id not in (SELECT id FROM fileblock);",
@@ -342,14 +398,14 @@ impl Database {
         )
     }
 
-    pub fn remove_block(&self, id: u32) -> SqliteResult<()> {
+    pub fn remove_block(&self, id: u32) -> DatabaseResult<()> {
         self.connection.execute(
             "DELETE FROM block WHERE id = $1;",
             &[&(id as i64)]
-        ).map(|_| ())
+        ).map(|_| ()).map_err(FromError::from_error)
     }
 
-    pub fn setup(&self) -> SqliteResult<()> {
+    pub fn setup(&self) -> DatabaseResult<()> {
         [
             "CREATE TABLE directory (
                 id        INTEGER PRIMARY KEY,
@@ -398,6 +454,7 @@ impl Database {
          .map(|&query| self.connection.execute(query, &[]))
          .reduce()
          .map(|_| ())
+         .map_err(FromError::from_error)
     }
 }
 

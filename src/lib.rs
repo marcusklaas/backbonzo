@@ -5,6 +5,7 @@
 #![feature(core)]
 #![feature(plugin)]
 #![feature(fs_time)]
+#![feature(thread_sleep)]
 
 #![plugin(regex_macros)]
 
@@ -12,7 +13,6 @@ extern crate "rustc-serialize" as rustc_serialize;
 extern crate time;
 extern crate bzip2;
 extern crate glob;
-extern crate "crypto" as rust_crypto;
 extern crate comm;
 extern crate "iter-reduce" as iter_reduce;
 extern crate rand;
@@ -50,10 +50,16 @@ pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 pub static MAX_ALIAS_AGE: u64 = 183 * 24 * 60 * 60 * 1000; // TODO: this should be a parameter
 
 #[derive(Copy, Eq, PartialEq, Debug)]
-enum Directory {
+pub enum Directory {
     Root,
     Child(i64)
 }
+
+#[derive(Copy, Eq, PartialEq, Debug)]
+pub struct FileId(u64);
+
+#[derive(Copy, Eq, PartialEq, Debug)]
+pub struct BlockId(u64);
 
 pub struct BackupManager {
     database: Database,
@@ -63,9 +69,7 @@ pub struct BackupManager {
 }
 
 impl BackupManager {
-    pub fn new(database_path: PathBuf, source_path: PathBuf, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
-        let database = try!(Database::from_file(database_path));
-        
+    pub fn new(database: Database, source_path: PathBuf, key: Box<[u8; 32]>) -> BonzoResult<BackupManager> {
         let backup_path = try!(
             database.get_key("backup_path")
                 .map_err(|error| BonzoError::Database(error))
@@ -93,12 +97,12 @@ impl BackupManager {
     // to its messages. Exits after the time has surpassed the deadline, even
     // when the update hasn't been fully completed
     pub fn update(&mut self, block_bytes: usize, deadline: time::Tm) -> BonzoResult<BackupSummary> {
-        let channel_receiver = export::start_export_thread(
+        let channel_receiver = try!(export::start_export_thread(
             &self.database,
             &self.encryption_key,
             block_bytes,
             &self.source_path
-        );
+        ));
         
         let mut summary = BackupSummary::new();
 
@@ -267,6 +271,7 @@ impl BackupManager {
     }
 }
 
+// TODO: move this to main.rs
 pub fn init(source_path: PathBuf, backup_path: PathBuf, password: &str) -> BonzoResult<()> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let database = try!(Database::create(database_path));
@@ -306,7 +311,8 @@ fn decode_path(path: &AsOsStr) -> PathBuf {
 
 pub fn backup(source_path: PathBuf, block_bytes: usize, password: &str, deadline: time::Tm) -> BonzoResult<BackupSummary> {
     let database_path = source_path.join(DATABASE_FILENAME);
-    let mut manager = try!(BackupManager::new(database_path, source_path, crypto::derive_key(password)));
+    let database = try!(Database::from_file(database_path));
+    let mut manager = try!(BackupManager::new(database, source_path, crypto::derive_key(password)));
     let summary = try!(manager.update(block_bytes, deadline));
 
     try!(manager.cleanup(MAX_ALIAS_AGE));
@@ -319,7 +325,8 @@ pub fn restore(source_path: PathBuf, backup_path: PathBuf, password: &str, times
     let temp_directory = try!(TempDir::new("bonzo"));
     let key = crypto::derive_key(password);
     let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), &*key));
-    let manager = try!(BackupManager::new(decrypted_index_path, source_path, key));
+    let database = try!(Database::from_file(decrypted_index_path));
+    let manager = try!(BackupManager::new(database, source_path, key));
     
     manager.restore(timestamp, filter)
 }
