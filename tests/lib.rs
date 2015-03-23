@@ -176,6 +176,7 @@ fn epoch_milliseconds() -> u64 {
 }
 
 #[test]
+// TODO: add some tiny sleeps -- this test fails sometimes
 fn renames() {
     let source_temp = TempDir::new("rename-source").unwrap();
     let destination_temp = TempDir::new("first-destination").unwrap();
