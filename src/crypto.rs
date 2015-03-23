@@ -15,6 +15,8 @@ use std::io;
 use std::fmt;
 use std::error::{FromError, Error};
 
+macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
+
 pub struct CryptoError;
 
 impl Error for CryptoError {
@@ -40,13 +42,73 @@ impl fmt::Display for CryptoError {
 }
 
 pub trait CryptoScheme {
-    fn new(password: &str) -> Self;
-
     fn hash_password(&self) -> String;
 
     fn encrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;
 
     fn decrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;
+}
+
+pub struct AesEncrypter {
+    key: [u8; 32]
+}
+
+impl AesEncrypter {
+    pub fn new(password: &str) -> AesEncrypter {
+        let mut scheme = AesEncrypter {
+            key: [0; 32]
+        };
+
+        let salt = [0; 16];
+        let mut mac = Hmac::new(Sha256::new(), password.as_bytes());
+
+        pbkdf2(&mut mac, &salt, 100000, &mut scheme.key);
+
+        scheme
+    }
+}
+
+impl CryptoScheme for AesEncrypter {
+    fn hash_password(&self) -> String {
+        let mut hasher = Sha256::new();
+    
+        hasher.input(&self.key);
+        hasher.result_str()
+    }
+
+    fn encrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let iv: [u8; 16] = [0; 16];
+        let mut encryptor = cbc_encryptor(KeySize::KeySize256, &self.key, &iv, PkcsPadding);
+        let mut final_result = Vec::<u8>::new();
+        let mut buffer = [0; 4096];
+        let mut read_buffer = RefReadBuffer::new(block);
+        let mut write_buffer = RefWriteBuffer::new(&mut buffer);
+
+        do_while_match!({
+            let result = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true));
+            final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+            result
+        }, BufferResult::BufferOverflow);
+
+        Ok(final_result)
+    }
+
+    fn decrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let iv: [u8; 16] = [0; 16];
+        let mut decryptor = cbc_decryptor(KeySize::KeySize256, &self.key, &iv, PkcsPadding);
+        let mut final_result = Vec::<u8>::new();
+        let mut buffer = [0; 4096];
+        let mut read_buffer = RefReadBuffer::new(block);
+        let mut write_buffer = RefWriteBuffer::new(&mut buffer);
+
+        do_while_match!({
+            let result = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true));
+            final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+            result
+        }, BufferResult::BufferOverflow);
+
+        Ok(final_result)
+    }
 }
 
 pub trait HashScheme {
@@ -55,7 +117,29 @@ pub trait HashScheme {
     fn hash_file(&self, path: &Path) -> io::Result<String>;
 }
 
-macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
+pub struct Sha256Hasher;
+
+impl HashScheme for Sha256Hasher {
+    fn hash_file(&self, path: &Path) -> io::Result<String> {
+        let mut chunks = try!(file_chunks(path, 1024));
+        let mut hasher = Sha256::new();
+        
+        while let Some(slice) = chunks.next() {
+            let unwrapped_slice = try!(slice);
+            
+            hasher.input(unwrapped_slice);
+        }
+        
+        Ok(hasher.result_str())
+    }
+
+    fn hash_block(&self, block: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        
+        hasher.input(block);
+        hasher.result_str()
+    }
+}
 
 // Hashes a string using a strong cryptographic
 pub fn hash_password(password: &str) -> String {
