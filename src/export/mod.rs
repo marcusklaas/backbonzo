@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::path::{PathBuf, Path};
 use std::thread::spawn;
+use std::error::FromError;
 
 use bzip2::{Compress};
 use bzip2::reader::BzCompressor;
@@ -8,7 +9,7 @@ use bzip2::reader::BzCompressor;
 use Directory;
 use super::error::{BonzoResult, BonzoError};
 use super::database::Database;
-use super::crypto;
+use super::crypto::{self, CryptoScheme};
 use super::file_chunks::file_chunks;
 use super::comm::mpsc::bounded_fast as mpsc;
 use super::comm::spmc::bounded_fast as spmc;
@@ -64,15 +65,15 @@ pub struct FileComplete {
 // encrypting these blocks. Blocks which have not previously been encountered
 // are transferred over a channel for the receiver to write to disk. This way,
 // the processing and writing of blocks can be done in parallel.
-pub struct ExportBlockSender<'sender> {
+pub struct ExportBlockSender<'sender, C> where C: CryptoScheme {
     database: Database,
-    encryption_key: Box<[u8; 32]>,
+    crypto_scheme: Box<C>,
     block_size: usize,
     path_receiver: spmc::Consumer<'static, FileInfoMessage>,
     sender: &'sender mut mpsc::Producer<'static, FileInstruction>
 }
 
-impl<'sender> ExportBlockSender<'sender> {
+impl<'sender, C: CryptoScheme> ExportBlockSender<'sender, C> {
     fn listen_for_paths(&self) -> BonzoResult<()> {
         while let Ok(msg) = self.path_receiver.recv_sync() {
             let info = try!(msg);
@@ -132,7 +133,7 @@ impl<'sender> ExportBlockSender<'sender> {
             return Ok(BlockReference::ById(id))
         }
 
-        let processed_bytes = try!(process_block(block, &*self.encryption_key));
+        let processed_bytes = try!(process_block(block, &*self.crypto_scheme));
 
         try!(self.sender.send_sync(FileInstruction::NewBlock(FileBlock {
             bytes: processed_bytes,
@@ -144,17 +145,18 @@ impl<'sender> ExportBlockSender<'sender> {
     }
 }
 
-pub fn process_block(clear_text: &[u8], key: &[u8; 32]) -> BonzoResult<Vec<u8>> {    
+pub fn process_block<C: CryptoScheme>(clear_text: &[u8], crypto_scheme: &C) -> BonzoResult<Vec<u8>> {    
     let mut compressor = BzCompressor::new(clear_text, Compress::Best);
     let mut buffer = Vec::new();    
     try!(compressor.read_to_end(&mut buffer));
-    Ok(try!(crypto::encrypt_block(buffer.as_slice(), key)))
+
+    crypto_scheme.encrypt_block(&buffer).map_err(FromError::from_error)
 }
 
 // Starts a new thread in which the given source path is recursively walked
 // and backed up. Returns a receiver to which new processed blocks and files
 // will be sent.
-pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block_size: usize, source_path: &Path) -> BonzoResult<mpsc::Consumer<'static, FileInstruction>> {
+pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypto_scheme: &C, block_size: usize, source_path: &Path) -> BonzoResult<mpsc::Consumer<'static, FileInstruction>> {
     let (block_transmitter, block_receiver) = unsafe { mpsc::new(CHANNEL_BUFFER_SIZE) };
     let (path_transmitter, path_receiver) = unsafe { spmc::new(CHANNEL_BUFFER_SIZE) };
     let sender_database = try!(database.try_clone());
@@ -169,14 +171,14 @@ pub fn start_export_thread(database: &Database, encryption_key: &[u8; 32], block
     for _ in 0..EXPORT_THREAD_COUNT {
         let mut transmitter = block_transmitter.clone();
         let new_database = try!(database.try_clone());
-        let key = encryption_key.clone();
         let receiver = path_receiver.clone();
+        let scheme = Box::new(*crypto_scheme);
         
         spawn(move|| {
             let result = {
                 let exporter = ExportBlockSender {
                     database: new_database,
-                    encryption_key: Box::new(key),
+                    crypto_scheme: scheme,
                     block_size: block_size,
                     path_receiver: receiver,
                     sender: &mut transmitter
@@ -218,16 +220,16 @@ mod test {
 
         let password = "password123";
         let database_path = temp_dir.path().join(".backbonzo.db3");
-        let key = super::super::crypto::derive_key(password);
+        let crypto_scheme = super::super::crypto::AesEncrypter::new(password);
 
         super::super::init(
             PathBuf::new(temp_dir.path()),
             PathBuf::new(temp_dir.path()),
-            password
+            &crypto_scheme
         ).unwrap();
 
         let database = super::super::database::Database::from_file(database_path).unwrap();
-        let receiver = super::start_export_thread(&database, &key, 10000000, temp_dir.path()).unwrap();
+        let receiver = super::start_export_thread(&database, &crypto_scheme, 10000000, temp_dir.path()).unwrap();
 
         // give the export thread plenty of time to process all files
         sleep(Duration::milliseconds(200));

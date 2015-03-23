@@ -41,7 +41,7 @@ impl fmt::Display for CryptoError {
     }
 }
 
-pub trait CryptoScheme {
+pub trait CryptoScheme: Send + Sync + Copy {
     fn hash_password(&self) -> String;
 
     fn encrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;
@@ -49,6 +49,7 @@ pub trait CryptoScheme {
     fn decrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;
 }
 
+#[derive(Copy)]
 pub struct AesEncrypter {
     key: [u8; 32]
 }
@@ -67,6 +68,9 @@ impl AesEncrypter {
         scheme
     }
 }
+
+unsafe impl Send for AesEncrypter {}
+unsafe impl Sync for AesEncrypter {}
 
 impl CryptoScheme for AesEncrypter {
     fn hash_password(&self) -> String {
@@ -141,24 +145,6 @@ impl HashScheme for Sha256Hasher {
     }
 }
 
-// Hashes a string using a strong cryptographic
-pub fn hash_password(password: &str) -> String {
-    let key = derive_key(password);
-
-    hash_block(&*key)
-}
-
-// Turns a string into a 256 bit key that we can use for {en,de}cryption
-pub fn derive_key(password: &str) -> Box<[u8; 32]> {
-    let salt = [0; 16];
-    let mut derived_key = Box::new([0u8; 32]);
-    let mut mac = Hmac::new(Sha256::new(), password.as_bytes());
-    
-    pbkdf2(&mut mac, &salt, 100000, derived_key.as_mut_slice());
-
-    derived_key
-}
-
 // Returns the SHA256 hash of a file in hex encoding
 pub fn hash_file(path: &Path) -> io::Result<String> {
     let mut chunks = try!(file_chunks(path, 1024));
@@ -181,47 +167,11 @@ pub fn hash_block(block: &[u8]) -> String {
     hasher.result_str()
 }
 
-// FIXME: we should still refactor this so it shares less code with decrypt_block
-pub fn encrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, CryptoError> {
-    let iv: [u8; 16] = [0; 16];
-    let mut encryptor = cbc_encryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
-    let mut final_result = Vec::<u8>::new();
-    let mut buffer = [0; 4096];
-    let mut read_buffer = RefReadBuffer::new(block);
-    let mut write_buffer = RefWriteBuffer::new(&mut buffer);
-
-    do_while_match!({
-        let result = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true));
-        final_result.push_all(write_buffer.take_read_buffer().take_remaining());
-        result
-    }, BufferResult::BufferOverflow);
-
-    Ok(final_result)
-} 
-
-// Decrypts a given block of AES256-CBC data using a 32 byte key and 16 byte
-// initialization vector. Returns error on incorrect passwords 
-pub fn decrypt_block(block: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, CryptoError> {    
-    let iv: [u8; 16] = [0; 16];
-    let mut decryptor = cbc_decryptor(KeySize::KeySize256, key.as_slice(), iv.as_slice(), PkcsPadding);
-    let mut final_result = Vec::<u8>::new();
-    let mut buffer = [0; 4096];
-    let mut read_buffer = RefReadBuffer::new(block);
-    let mut write_buffer = RefWriteBuffer::new(&mut buffer);
-
-    do_while_match!({
-        let result = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true));
-        final_result.push_all(write_buffer.take_read_buffer().take_remaining());
-        result
-    }, BufferResult::BufferOverflow);
-
-    Ok(final_result)
-}
-
 #[cfg(test)]
 mod test {
     use super::super::rand::{Rng, OsRng};
     use super::super::tempdir::TempDir;
+    use super::{CryptoScheme, AesEncrypter};
     
     use std::fs::File;
     use std::io::Write;
@@ -229,30 +179,31 @@ mod test {
     #[test]
     fn aes_encryption_decryption() {
         let mut data: [u8; 100000] = [0; 100000];
-        let mut key: [u8; 32] = [0; 32];
+        let mut key: [u8; 500] = [0; 500];
         let mut rng = OsRng::new().ok().unwrap();
 
         rng.fill_bytes(&mut data);
         rng.fill_bytes(&mut key);
-    
+
+        let scheme = AesEncrypter::new(&String::from_utf8_lossy(&key));
         let index = rng.gen::<u32>() % 100000;
         let slice = &data[0..index as usize];
-        let encrypted_data = super::encrypt_block(slice, &key).ok().unwrap();
-        let decrypted_data = super::decrypt_block(encrypted_data.as_slice(), &key).ok().unwrap();
+        let encrypted_data = scheme.encrypt_block(slice).ok().unwrap();
+        let decrypted_data = scheme.decrypt_block(&encrypted_data).ok().unwrap();
 
         assert!(slice == decrypted_data.as_slice());
     }
 
     #[test]
     fn decryption_bad_key() {
-        let message = "hello, world!";
-        let key = [0u8; 32];
-        let bad_key = [1u8; 32];
+        let message = b"hello, world!";
+        let scheme = AesEncrypter::new("test");
+        let bad_scheme = AesEncrypter::new("hallo");
 
-        let encrypted_data = super::encrypt_block(message.as_bytes(), &key).ok().unwrap();
+        let encrypted_data = scheme.encrypt_block(message).ok().unwrap();
         
-        let bad_decrypt = super::decrypt_block(encrypted_data.as_slice(), &bad_key);
-        let good_decrypt = super::decrypt_block(encrypted_data.as_slice(), &key);
+        let bad_decrypt = bad_scheme.decrypt_block(&encrypted_data);
+        let good_decrypt = scheme.decrypt_block(&encrypted_data);
 
         assert!(bad_decrypt.is_err());
         assert!(good_decrypt.is_ok());
@@ -260,8 +211,8 @@ mod test {
 
     #[test]
     fn key_derivation() {
-        let key = super::derive_key("test");
-        let key_two = super::derive_key("testk");
+        let key = AesEncrypter::new("test").hash_password();
+        let key_two = AesEncrypter::new("testk").hash_password();
 
         assert!(key.as_slice() != key_two.as_slice());
     }
