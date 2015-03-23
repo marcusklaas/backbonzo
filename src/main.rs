@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::time::duration::Duration;
 use std::fmt::Debug;
 use std::io::{Write, stderr};
-use backbonzo::{init, backup, restore, epoch_milliseconds, BonzoResult};
+use backbonzo::{init, backup, restore, epoch_milliseconds, BonzoResult, AesEncrypter};
 
 static USAGE: &'static str = "
 backbonzo
@@ -70,17 +70,18 @@ fn main() {
         v => v
     };
     let password = args.flag_key.as_slice();
+    let crypto_scheme = AesEncrypter::new(&password);
 
     if args.cmd_init {
-        let result = init(source_path, backup_path, password);
+        let result = init(source_path, backup_path, &crypto_scheme);
         handle_result(result);
     }
     else if args.cmd_backup {
-        let result = backup(source_path, block_bytes, password, deadline);
+        let result = backup(source_path, block_bytes, &crypto_scheme, deadline);
         handle_result(result);
     }
     else if args.cmd_restore {
-        let result = restore(source_path, backup_path, password, timestamp, args.flag_filter);
+        let result = restore(source_path, backup_path, &crypto_scheme, timestamp, args.flag_filter);
         handle_result(result);
     }
 }

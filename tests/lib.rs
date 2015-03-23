@@ -7,7 +7,7 @@ extern crate backbonzo;
 extern crate time;
 extern crate tempdir;
 
-use backbonzo::BonzoError;
+use backbonzo::{AesEncrypter, BonzoError};
 use std::io::{Read, Write, self};
 use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions};
 use std::time::duration::Duration;
@@ -24,12 +24,12 @@ fn init() {
     let source_dir = TempDir::new("init").unwrap();
     let backup_dir = TempDir::new("init-backup").unwrap();
     
-    let password = "testpassword";
+    let crypto_scheme = AesEncrypter::new("testpassword");
 
     let result = backbonzo::init(
         PathBuf::new(source_dir.path()),
         PathBuf::new(backup_dir.path()),
-        password.clone()
+        &crypto_scheme
     );
 
     assert!(result.is_ok());
@@ -37,7 +37,7 @@ fn init() {
     let second_result = backbonzo::init(
         PathBuf::new(source_dir.path()),
         PathBuf::new(backup_dir.path()),
-        password.clone()
+        &crypto_scheme
     );
 
     let is_expected = match second_result {
@@ -59,15 +59,16 @@ fn backup_wrong_password() {
         backbonzo::init(
             source_path.clone(),
             destination_path.clone(),
-            "testpassword"
+            &AesEncrypter::new("testpassword")
         ).is_ok()
     );
 
     let backup_result = backbonzo::backup(
         source_path,
         1000000,
-        "differentpassword",
-        deadline);
+        &AesEncrypter::new("differentpassword"),
+        deadline
+    );
 
     let is_expected = match backup_result {
         Err(BonzoError::Other(ref str)) => str.as_slice() == "Password is not the same as in database",
@@ -86,7 +87,7 @@ fn backup_no_init() {
     let backup_result = backbonzo::backup(
         source_path,
         1000000,
-        "differentpassword",
+        &AesEncrypter::new("differentpassword"),
         deadline
     );
 
@@ -100,7 +101,7 @@ fn backup_and_restore() {
     let destination_temp = TempDir::new("destination").unwrap();
     let source_path = PathBuf::new(source_temp.path());
     let destination_path = PathBuf::new(destination_temp.path());
-    let password = "testpassword";
+    let crypto_scheme = AesEncrypter::new("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
     assert!(create_dir_all(&source_path.join("test")).is_ok());
@@ -126,14 +127,14 @@ fn backup_and_restore() {
         backbonzo::init(
             source_path.clone(),
             destination_path.clone(),
-            password.clone()
+            &crypto_scheme
         ).is_ok()
     );
 
     let backup_result = backbonzo::backup(
         source_path.clone(),
         1000000,
-        password,
+        &crypto_scheme,
         deadline
     );
 
@@ -146,7 +147,7 @@ fn backup_and_restore() {
     let restore_result = backbonzo::restore(
         restore_path.clone(),
         destination_path.clone(),
-        password,
+        &crypto_scheme,
         timestamp,
         String::from_str("**/welco*")
     );
@@ -180,14 +181,14 @@ fn renames() {
     let destination_temp = TempDir::new("first-destination").unwrap();
     let source_path = PathBuf::new(source_temp.path());
     let destination_path = PathBuf::new(destination_temp.path());
-    let password = "helloworld";
+    let crypto_scheme = AesEncrypter::new("helloworld");
     let deadline = time::now() + Duration::minutes(10);
 
     assert!(
         backbonzo::init(
             source_path.clone(),
             destination_path.clone(),
-            password.clone()
+            &crypto_scheme
         ).is_ok()
     );
 
@@ -209,7 +210,7 @@ fn renames() {
         let backup_result = backbonzo::backup(
             source_path.clone(),
             1000000,
-            password,
+            &crypto_scheme,
             deadline
         );
 
@@ -232,7 +233,7 @@ fn renames() {
         let backup_result = backbonzo::backup(
             source_path.clone(),
             1000000,
-            password,
+            &crypto_scheme,
             deadline
         );
 
@@ -251,7 +252,7 @@ fn renames() {
         let backup_result = backbonzo::backup(
             source_path.clone(),
             1000000,
-            password,
+            &crypto_scheme,
             deadline
         );
 
@@ -269,7 +270,7 @@ fn renames() {
         let backup_result = backbonzo::backup(
             source_path.clone(),
             1000000,
-            password,
+            &crypto_scheme,
             deadline
         );
 
@@ -284,7 +285,7 @@ fn renames() {
         let restore_result = backbonzo::restore(
             restore_path.clone(),
             destination_path.clone(),
-            password,
+            &crypto_scheme,
             second_timestamp + 1,
             String::from_str("**")
         );
@@ -312,7 +313,7 @@ fn renames() {
         let restore_result = backbonzo::restore(
             restore_path.clone(),
             destination_path.clone(),
-            password,
+            &crypto_scheme,
             third_timestamp + 1,
             String::from_str("**")
         );
@@ -340,7 +341,7 @@ fn renames() {
         let restore_result = backbonzo::restore(
             restore_path.clone(),
             destination_path.clone(),
-            password,
+            &crypto_scheme,
             epoch_milliseconds(),
             String::from_str("**")
         );
@@ -362,7 +363,7 @@ fn renames() {
         let restore_result = backbonzo::restore(
             restore_path.clone(),
             destination_path.clone(),
-            password,
+            &crypto_scheme,
             first_timestamp + 1,
             String::from_str("**")
         );
@@ -390,7 +391,7 @@ fn renames() {
         let restore_result = backbonzo::restore(
             restore_path.clone(),
             destination_path.clone(),
-            password,
+            &crypto_scheme,
             5000,
             String::from_str("**")
         );
