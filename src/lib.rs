@@ -39,7 +39,7 @@ use database::Database;
 use summary::{RestorationSummary, BackupSummary};
 
 pub use error::{BonzoError, BonzoResult};
-pub use crypto::{CryptoScheme, AesEncrypter};
+pub use crypto::{CryptoScheme, AesEncrypter, hash_block};
 
 mod database;
 mod crypto;
@@ -159,6 +159,10 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
             let hash = try!(self.database.block_hash_from_id(*block_id));
             let block_path = block_output_path(&self.backup_path, hash.as_slice());
             let bytes = try!(load_processed_block(&block_path, &*self.crypto_scheme));
+
+            if hash_block(&bytes) != hash {
+                return Err(BonzoError::from_str("Block integrity check failed"));
+            }
 
             summary.add_block(&bytes);
 
@@ -394,7 +398,7 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod test {
     use std::io::{Read, Write, BufReader};
-    use std::fs::{create_dir_all, File};
+    use std::fs::{create_dir_all, File, copy};
     use std::time::duration::Duration;
     use std::path::PathBuf;
 
@@ -403,7 +407,7 @@ mod test {
     use super::bzip2::reader::{BzDecompressor, BzCompressor};
     use super::bzip2::Compress;
     use super::crypto::hash_file;
-    use super::{write_to_disk, block_output_path, init, backup};
+    use super::{write_to_disk, block_output_path, init, backup, restore, epoch_milliseconds, BonzoError};
     use super::time;
     
     // It can happen that a block is (partially) written, but not persisted to database
@@ -429,13 +433,55 @@ mod test {
         }
 
         let deadline = time::now() + Duration::seconds(30);
-
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
         init(PathBuf::new(source_dir.path()), PathBuf::new(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
         backup(PathBuf::new(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
     }
 
+    // Checks that the hash of the restored data is as expected
+    #[test]
+    fn integrity() {
+        let file_one_content = b"71d6e2f35502c03743f676449c503f487de29988";
+        let file_two_content = b"i sure hope this works, yo!";
+
+        let source_dir = TempDir::new("integ-source").unwrap();
+        let dest_dir = TempDir::new("integ-dest").unwrap();
+        let file_one_path = source_dir.path().join("file-one");
+        let file_two_path = source_dir.path().join("file-two");
+        
+        write_to_disk(&file_one_path, file_one_content).ok().expect("write input file one ");
+        write_to_disk(&file_two_path, file_two_content).ok().expect("write input file two");
+
+        let deadline = time::now() + Duration::seconds(30);
+        let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
+
+        init(PathBuf::new(source_dir.path()), PathBuf::new(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
+        backup(PathBuf::new(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
+        
+        let file_one_hash = hash_file(&file_one_path).ok().expect("compute hash");
+        let file_two_hash = hash_file(&file_two_path).ok().expect("compute hash");
+        let file_one_out_path = block_output_path(dest_dir.path(), &file_one_hash);
+        let file_two_out_path = block_output_path(dest_dir.path(), &file_two_hash);
+
+        copy(file_one_out_path, file_two_out_path).ok().expect("copy files");
+
+        let restore_dir = TempDir::new("integ-restore").unwrap();
+        let result = restore(
+            PathBuf::new(restore_dir.path()),
+            PathBuf::new(dest_dir.path()),
+            &crypto_scheme,
+            epoch_milliseconds(),
+            "**".to_string()
+        );
+
+        let is_expected = match result {
+            Err(BonzoError::Other(ref str)) => str.as_slice() == "Block integrity check failed",
+            _                               => false
+        };
+
+        assert!(is_expected);
+    }
 
     #[test]
     fn process_reversability() {
