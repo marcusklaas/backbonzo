@@ -419,14 +419,14 @@ impl Database {
     // TODO: return number of deleted rows?
     pub fn remove_unused_files(&self) -> DatabaseResult<()> {
         self.connection.execute(
-            "DELETE FROM file
-              WHERE id not in (SELECT file_id FROM alias);",
+            "DELETE FROM fileblock
+              WHERE file_id not in (SELECT file_id FROM alias);",
             &[]
         )
         .and_then(|_| {
             self.connection.execute(
-                "DELETE FROM fileblock
-                  WHERE file_id not in (SELECT file_id FROM alias);",
+                "DELETE FROM file
+                  WHERE id not in (SELECT file_id FROM alias);",
                 &[]
             )
         })

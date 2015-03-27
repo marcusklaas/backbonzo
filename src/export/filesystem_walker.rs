@@ -37,34 +37,37 @@ impl<'sender> FilePathExporter<'sender> {
         
         for item in content_iter {
             let (content_path, last_modified) = try!(item);
-            
-            let filename = try!(
+
+            // We have to (?) do the transmute to bypass the borrow checker.
+            // Otherwise we cannot send content_path, because the checker thinks
+            // it still borrowed by file_name.
+            let filename: &str = unsafe { mem::transmute( try!( 
                 content_path
                     .file_name()
                     .and_then(|os_str| os_str.to_str())
                     .ok_or(BonzoError::from_str("Could not convert filename to string"))
-                    .map(String::from_str)
-            );
+            ) ) };
             
             if content_path.is_dir() {
-                let child_directory = try!(self.database.get_directory(directory, &filename));
+                let child_directory = try!(self.database.get_directory(directory, filename));
             
                 try!(self.export_directory(&content_path, child_directory));
+                continue;
             }
-            else {
-                // FIXME: don't String::from_str if filename is dir
-                if directory != Directory::Root || filename != super::super::DATABASE_FILENAME {
-                    deleted_filenames.remove(&filename);
+            
+            if directory != Directory::Root || filename != super::super::DATABASE_FILENAME {
+                deleted_filenames.remove(filename);
+                let owned_name = filename.to_string();
 
-                    try!(
-                        self.channel.send_sync(Ok(FileInfo {
-                            path: content_path,
-                            modified: last_modified,
-                            filename: filename,
-                            directory: directory
-                        })).map_err(|_| BonzoError::from_str("Failed sending file path"))
-                    );
-                }
+                try!(
+                    self.channel.send_sync(Ok(FileInfo {
+                        path: content_path,
+                        modified: last_modified,
+                        filename: owned_name,
+                        directory: directory
+                    }))
+                    .map_err(|_| BonzoError::from_str("Failed sending file path"))
+                );
             }
         }
 
