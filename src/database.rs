@@ -411,7 +411,9 @@ impl Database {
                     id NOT IN (SELECT MAX(id) FROM alias GROUP BY name, directory_id)                    
                );",
             &[&(timestamp as i64)]
-        ).map(|_| ()).map_err(FromError::from_error)
+        )
+        .map(|_| ())
+        .map_err(FromError::from_error)
     }
 
     // TODO: return number of deleted rows?
@@ -420,7 +422,16 @@ impl Database {
             "DELETE FROM file
               WHERE id not in (SELECT file_id FROM alias);",
             &[]
-        ).map(|_| ()).map_err(FromError::from_error)
+        )
+        .and_then(|_| {
+            self.connection.execute(
+                "DELETE FROM fileblock
+                  WHERE file_id not in (SELECT file_id FROM alias);",
+                &[]
+            )
+        })
+        .map(|_| ())
+        .map_err(FromError::from_error)
     }
 
     pub fn get_unused_blocks(&self) -> DatabaseResult<Vec<(BlockId, String)>> {
