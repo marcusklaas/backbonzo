@@ -1,4 +1,4 @@
-extern crate "crypto" as rust_crypto;
+extern crate crypto as rust_crypto;
 
 use self::rust_crypto::aes::{cbc_decryptor, cbc_encryptor, KeySize};
 use self::rust_crypto::digest::Digest;
@@ -17,6 +17,7 @@ use std::error::{FromError, Error};
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
+#[derive(Debug)]
 pub struct CryptoError;
 
 impl Error for CryptoError {
@@ -191,7 +192,7 @@ mod test {
         let encrypted_data = scheme.encrypt_block(slice).ok().unwrap();
         let decrypted_data = scheme.decrypt_block(&encrypted_data).ok().unwrap();
 
-        assert!(slice == decrypted_data.as_slice());
+        assert!(slice == &decrypted_data[..]);
     }
 
     #[test]
@@ -214,7 +215,7 @@ mod test {
         let key = AesEncrypter::new("test").hash_password();
         let key_two = AesEncrypter::new("testk").hash_password();
 
-        assert!(key.as_slice() != key_two.as_slice());
+        assert!(key != key_two);
     }
 
     #[test]
@@ -226,7 +227,7 @@ mod test {
         let expected_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
         let hash = super::hash_file(&file_path).unwrap();
 
-        assert_eq!(expected_hash, hash.as_slice());
+        assert_eq!(expected_hash, &hash[..]);
 
         let _ = file.write_all("test".as_bytes()).unwrap();
         let _ = file.sync_all().unwrap();
@@ -234,7 +235,7 @@ mod test {
         let new_expected_hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
         let new_hash = super::hash_file(&file_path).unwrap();
 
-        assert_eq!(new_expected_hash, new_hash.as_slice());
+        assert_eq!(new_expected_hash, &new_hash[..]);
 
         let non_existant_path = temp_dir.path().join("no-exist");
 
@@ -246,6 +247,6 @@ mod test {
         let expected_hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
         let hash = super::hash_block("test".as_bytes());
 
-        assert_eq!(expected_hash, hash.as_slice());
+        assert_eq!(expected_hash, &hash[..]);
     }
 }

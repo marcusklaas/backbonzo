@@ -1,6 +1,6 @@
 extern crate rusqlite;
 extern crate libc;
-extern crate "libsqlite3-sys" as libsqlite;
+extern crate libsqlite3_sys as libsqlite;
 
 use super::{epoch_milliseconds, Directory};
 use super::error::{BonzoResult, BonzoError};
@@ -174,7 +174,7 @@ impl<'a> Iterator for Aliases<'a> {
         // return file from current directory
         self.file_list.pop().map(|(id, name)| {
             self.database.get_file_block_list(id).map(|block_list| {
-                (self.path.join(name.as_slice()), block_list)
+                (self.path.join(&name), block_list)
             })
         })
     }
@@ -302,7 +302,7 @@ impl Database {
         for (ordinal, block_id) in block_id_list.iter().enumerate() {
             try!(self.connection.execute(
                 "INSERT INTO fileblock (file_id, block_id, ordinal) VALUES ($1, $2, $3);"
-                , &[&(file_id as i64), block_id, &(ordinal as i64)]
+                , &[&file_id, block_id, &(ordinal as i64)]
             ));
         }
         

@@ -1,20 +1,14 @@
-#![feature(collections)]
-#![feature(libc)]
-#![feature(path_ext)]
-#![feature(std_misc)]
-#![feature(core)]
-#![feature(plugin)]
-#![feature(fs_time)]
+#![feature(collections, libc, path_ext, std_misc, core, plugin, fs_time, convert)]
 #![feature(thread_sleep)]
 
 #![plugin(regex_macros)]
 
-extern crate "rustc-serialize" as rustc_serialize;
+extern crate rustc_serialize;
 extern crate time;
 extern crate bzip2;
 extern crate glob;
 extern crate comm;
-extern crate "iter-reduce" as iter_reduce;
+extern crate iter_reduce;
 extern crate rand;
 extern crate tempdir;
 
@@ -24,9 +18,9 @@ extern crate regex;
 use std::io::{self, Read, Write, BufReader};
 use std::fs::{remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
-use std::ffi::AsOsStr;
 use std::env::current_dir;
 use std::error::FromError;
+use std::convert::AsRef;
 
 use tempdir::TempDir;
 use bzip2::reader::BzDecompressor;
@@ -82,7 +76,7 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
                     decode_path(&path_string)
                 })
         );
-        
+
         let manager = BackupManager {
             database: database,
             source_path: source_path,
@@ -105,14 +99,14 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
             block_bytes,
             &self.source_path
         ));
-        
+
         let mut summary = BackupSummary::new();
 
         while let Ok(msg) = channel_receiver.recv_sync() {
             if time::now_utc() > deadline {
                 break;
-            }            
-            
+            }
+
             match msg {
                 FileInstruction::Error(e)            => return Err(e),
                 FileInstruction::NewBlock(ref block) => try!(self.handle_new_block(block, &mut summary)),
@@ -124,7 +118,7 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
     }
 
     pub fn restore(&self, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
-        let pattern = try!(Pattern::new(filter.as_slice()).map_err(|_| BonzoError::from_str("Invalid glob pattern")));
+        let pattern = try!(Pattern::new(&filter).map_err(|_| BonzoError::from_str("Invalid glob pattern")));
         let mut summary = RestorationSummary::new();
 
         try!(database::Aliases::new(
@@ -152,12 +146,12 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
     // and writing them to the given path in order
     pub fn restore_file(&self, path: &Path, block_list: &[BlockId], summary: &mut RestorationSummary) -> BonzoResult<()> {
         try!(create_parent_dir(path));
-        
+
         let mut file = try!(File::create(path));
 
         for block_id in block_list.iter() {
             let hash = try!(self.database.block_hash_from_id(*block_id));
-            let block_path = block_output_path(&self.backup_path, hash.as_slice());
+            let block_path = block_output_path(&self.backup_path, &hash);
             let bytes = try!(load_processed_block(&block_path, &*self.crypto_scheme));
 
             if hash_block(&bytes) != hash {
@@ -178,16 +172,16 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
 
     fn handle_new_block(&self, block: &FileBlock, summary: &mut BackupSummary) -> BonzoResult<()> {
         // make sure block has not already been persisted
-        if let Some(..) = try!(self.database.block_id_from_hash(block.hash.as_slice())) {
+        if let Some(..) = try!(self.database.block_id_from_hash(&block.hash)) {
             return Ok(());
         }
-        
-        let path = block_output_path(&self.backup_path, block.hash.as_slice());
-        let byte_slice = block.bytes.as_slice();
+
+        let path = block_output_path(&self.backup_path, &block.hash);
+        let byte_slice = &block.bytes;
 
         try!(create_parent_dir(&path));
         try!(write_to_disk(&path, byte_slice));
-        try!(self.database.persist_block(block.hash.as_slice()));
+        try!(self.database.persist_block(&block.hash));
 
         summary.add_block(byte_slice, block.source_byte_count);
 
@@ -196,7 +190,7 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
 
     fn handle_new_file(&self, file: &FileComplete, summary: &mut BackupSummary) -> BonzoResult<()> {
         // if file hash was already known, only add a new alias
-        if let file_id@Some(..) = try!(self.database.file_from_hash(file.hash.as_slice())) {
+        if let file_id@Some(..) = try!(self.database.file_from_hash(&file.hash)) {
             try!(self.database.persist_alias(
                 file.directory,
                 file_id,
@@ -206,20 +200,20 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
 
             return Ok(summary.add_file());
         }
-        
+
         let block_id_list: Vec<_> = try!(
             file.block_reference_list
             .iter()
             .map(|reference| match *reference {
                 BlockReference::ById(id)         => Ok(id),
                 BlockReference::ByHash(ref hash) => {
-                    let id_option = try!(self.database.block_id_from_hash(hash.as_slice()));
+                    let id_option = try!(self.database.block_id_from_hash(&hash));
                     id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {}", hash)))
                 }
             })
             .collect()
         );
-        
+
         try!(self.database.persist_file(
             file.directory,
             &file.filename,
@@ -253,11 +247,11 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
             true  => 0,
             false => now - max_age_milliseconds
         };
-        
+
         try!(self.database.remove_old_aliases(timestamp));
-        
+
         try!(self.database.remove_unused_files());
-        
+
         self.clean_unused_blocks()
     }
 
@@ -281,10 +275,10 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
         let procesed_bytes = try!(process_block(&bytes, &*self.crypto_scheme));
         let new_index = self.backup_path.join("index-new");
         let index = self.backup_path.join("index");
-        
+
         try!(write_to_disk(&new_index, &procesed_bytes));
         try!(copy(&new_index, &index));
-        
+
         Ok(try!(remove_file(&new_index)))
     }
 }
@@ -299,7 +293,7 @@ pub fn init<C: CryptoScheme>(source_path: PathBuf, backup_path: PathBuf, crypto_
     try!(database.set_key("password", &hash));
 
     let encoded_backup_path = try!(encode_path(&backup_path));
-    
+
     try!(database.set_key("backup_path", &encoded_backup_path));
 
     Ok(())
@@ -316,15 +310,15 @@ fn encode_path(path: &Path) -> io::Result<String> {
     if path.is_relative() {
         let mut cwd = try!(current_dir());
         cwd.push(path);
-        
+
         return Ok(cwd.to_string_lossy().into_owned())
     }
 
     Ok(path.to_string_lossy().into_owned())
 }
 
-fn decode_path(path: &AsOsStr) -> PathBuf {
-    PathBuf::new(path)
+fn decode_path<P: AsRef<Path>>(path: &P) -> PathBuf {
+    PathBuf::from(path.as_ref())
 }
 
 pub fn backup<C: CryptoScheme + 'static>(source_path: PathBuf, block_bytes: usize, crypto_scheme: &C, deadline: time::Tm) -> BonzoResult<BackupSummary> {
@@ -358,7 +352,7 @@ fn decrypt_index<C: CryptoScheme>(backup_path: &Path, temp_dir: &Path, crypto_sc
     let decrypted_index_path = temp_dir.join(DATABASE_FILENAME);
     let bytes = try!(load_processed_block(&backup_path.join("index"), crypto_scheme));
 
-    try!(write_to_disk(&decrypted_index_path, bytes.as_slice()));
+    try!(write_to_disk(&decrypted_index_path, &bytes));
 
     Ok(decrypted_index_path)
 }
@@ -435,8 +429,8 @@ mod test {
         let deadline = time::now() + Duration::seconds(30);
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
-        init(PathBuf::new(source_dir.path()), PathBuf::new(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
-        backup(PathBuf::new(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
+        init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
+        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
     }
 
     // Checks that the hash of the restored data is as expected
@@ -456,8 +450,8 @@ mod test {
         let deadline = time::now() + Duration::seconds(30);
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
-        init(PathBuf::new(source_dir.path()), PathBuf::new(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
-        backup(PathBuf::new(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
+        init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
+        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
         
         let file_one_hash = hash_file(&file_one_path).ok().expect("compute hash");
         let file_two_hash = hash_file(&file_two_path).ok().expect("compute hash");
@@ -468,15 +462,15 @@ mod test {
 
         let restore_dir = TempDir::new("integ-restore").unwrap();
         let result = restore(
-            PathBuf::new(restore_dir.path()),
-            PathBuf::new(dest_dir.path()),
+            PathBuf::from(restore_dir.path()),
+            PathBuf::from(dest_dir.path()),
             &crypto_scheme,
             epoch_milliseconds(),
             "**".to_string()
         );
 
         let is_expected = match result {
-            Err(BonzoError::Other(ref str)) => str.as_slice() == "Block integrity check failed",
+            Err(BonzoError::Other(ref str)) => &str[..] == "Block integrity check failed",
             _                               => false
         };
 
@@ -493,12 +487,12 @@ mod test {
         let processed_bytes = super::export::process_block(bytes, &crypto_scheme).unwrap();
         
         let mut file = File::create(&file_path).unwrap();
-        assert!(file.write_all(processed_bytes.as_slice()).is_ok());
+        assert!(file.write_all(&processed_bytes).is_ok());
         assert!(file.sync_all().is_ok());
 
         let retrieved_bytes = super::load_processed_block(&file_path, &crypto_scheme).unwrap();
 
-        assert_eq!(bytes.as_slice(), retrieved_bytes.as_slice());
+        assert_eq!(&bytes, &retrieved_bytes);
     }
     
     #[test]
@@ -513,7 +507,7 @@ mod test {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        assert!(buffer.as_slice() == message.as_bytes());
+        assert!(&buffer[..] == message.as_bytes());
     }
 
     #[test]
@@ -530,11 +524,11 @@ mod test {
             let mut compressed_bytes = Vec::new();
             compressor.read_to_end(&mut compressed_bytes).unwrap();
             
-            let mut decompressor = BzDecompressor::new(BufReader::new(compressed_bytes.as_slice()));
+            let mut decompressor = BzDecompressor::new(BufReader::new(&compressed_bytes[..]));
             let mut decompressed_bytes = Vec::new();
             decompressor.read_to_end(&mut decompressed_bytes).unwrap();
 
-            assert_eq!(slice, decompressed_bytes.as_slice());
+            assert_eq!(slice, &decompressed_bytes[..]);
         }
     }
 }

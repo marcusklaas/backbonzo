@@ -1,8 +1,7 @@
-#![feature(core)]
-#![feature(std_misc)]
+#![feature(std_misc, convert)]
 #![cfg(not(test))]
 
-extern crate "rustc-serialize" as rustc_serialize;
+extern crate rustc_serialize;
 extern crate backbonzo;
 extern crate docopt;
 extern crate time;
@@ -58,8 +57,8 @@ fn main() {
     let args: Args = Docopt::new(USAGE)
                             .and_then(|d| d.decode())
                             .unwrap_or_else(|e| e.exit());
-    let source_path = PathBuf::new(&args.flag_source);
-    let backup_path = PathBuf::new(&args.flag_destination);
+    let source_path = PathBuf::from(&args.flag_source);
+    let backup_path = PathBuf::from(&args.flag_destination);
     let block_bytes = 1000 * (args.flag_blocksize as usize);
     let deadline = time::now() + match args.flag_timeout {
         0    => Duration::weeks(52),
@@ -69,7 +68,7 @@ fn main() {
         0 => epoch_milliseconds(),
         v => v
     };
-    let password = args.flag_key.as_slice();
+    let password = args.flag_key;
     let crypto_scheme = AesEncrypter::new(&password);
 
     if args.cmd_init {

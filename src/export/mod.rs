@@ -91,14 +91,14 @@ impl<'sender, C: CryptoScheme> ExportBlockSender<'sender, C> {
     // message is sent, so the receiver can persist the file to the
     // database. 
     fn export_file(&self, directory: Directory, path: &Path, filename: String, last_modified: u64) -> BonzoResult<()> {        
-        if try!(self.database.alias_known(directory, filename.as_slice(), last_modified)) {           
+        if try!(self.database.alias_known(directory, &filename, last_modified)) {           
             return Ok(());
         }
         
         let hash = try!(crypto::hash_file(path));
 
-        if let Some(file_id) = try!(self.database.file_from_hash(hash.as_slice())) {
-            return Ok(try!(self.database.persist_alias(directory, Some(file_id), filename.as_slice(), Some(last_modified))));
+        if let Some(file_id) = try!(self.database.file_from_hash(&hash)) {
+            return Ok(try!(self.database.persist_alias(directory, Some(file_id), &filename, Some(last_modified))));
         }
         
         let mut chunks = try!(file_chunks(path, self.block_size));
@@ -129,7 +129,7 @@ impl<'sender, C: CryptoScheme> ExportBlockSender<'sender, C> {
     pub fn export_block(&self, block: &[u8]) -> BonzoResult<BlockReference> {
         let hash = crypto::hash_block(block);
 
-        if let Some(id) = try!(self.database.block_id_from_hash(hash.as_slice())) {
+        if let Some(id) = try!(self.database.block_id_from_hash(&hash)) {
             return Ok(BlockReference::ById(id))
         }
 
@@ -145,9 +145,9 @@ impl<'sender, C: CryptoScheme> ExportBlockSender<'sender, C> {
     }
 }
 
-pub fn process_block<C: CryptoScheme>(clear_text: &[u8], crypto_scheme: &C) -> BonzoResult<Vec<u8>> {    
+pub fn process_block<C: CryptoScheme>(clear_text: &[u8], crypto_scheme: &C) -> BonzoResult<Vec<u8>> {
     let mut compressor = BzCompressor::new(clear_text, Compress::Best);
-    let mut buffer = Vec::new();    
+    let mut buffer = Vec::new();
     try!(compressor.read_to_end(&mut buffer));
 
     crypto_scheme.encrypt_block(&buffer).map_err(FromError::from_error)
@@ -160,7 +160,7 @@ pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypt
     let (block_transmitter, block_receiver) = unsafe { mpsc::new(CHANNEL_BUFFER_SIZE) };
     let (path_transmitter, path_receiver) = unsafe { spmc::new(CHANNEL_BUFFER_SIZE) };
     let sender_database = try!(database.try_clone());
-    let path = PathBuf::new(source_path);
+    let path = PathBuf::from(source_path);
 
     // spawn thread that sends file paths
     spawn(move || {
@@ -173,7 +173,7 @@ pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypt
         let new_database = try!(database.try_clone());
         let receiver = path_receiver.clone();
         let scheme = Box::new(*crypto_scheme);
-        
+
         spawn(move|| {
             let result = {
                 let exporter = ExportBlockSender {
@@ -213,7 +213,7 @@ mod test {
 
         for i in 0..file_count {
             let content = format!("file{}", i);
-            let file_path = temp_dir.path().join(content.as_slice());
+            let file_path = temp_dir.path().join(&content);
 
             write_to_disk(&file_path, content.as_bytes()).unwrap();
         }
@@ -223,8 +223,8 @@ mod test {
         let crypto_scheme = super::super::crypto::AesEncrypter::new(password);
 
         super::super::init(
-            PathBuf::new(temp_dir.path()),
-            PathBuf::new(temp_dir.path()),
+            PathBuf::from(temp_dir.path()),
+            PathBuf::from(temp_dir.path()),
             &crypto_scheme
         ).unwrap();
 

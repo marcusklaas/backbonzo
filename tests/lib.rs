@@ -1,7 +1,4 @@
-#![feature(collections)]
-#![feature(std_misc)]
-#![feature(core)]
-#![feature(path_ext)]
+#![feature(collections, std_misc, convert, path_ext, thread_sleep)]
 
 extern crate backbonzo;
 extern crate time;
@@ -12,10 +9,13 @@ use std::io::{Read, Write, self};
 use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions};
 use std::time::duration::Duration;
 use time::get_time;
-use std::path::{PathBuf, AsPath};
+use std::path::PathBuf;
 use tempdir::TempDir;
+use std::convert::AsRef;
+use std::path::Path;
+use std::thread::sleep;
 
-fn open_read_write<P: AsPath>(path: P) -> io::Result<File> {
+fn open_read_write<P: AsRef<Path>>(path: P) -> io::Result<File> {
     OpenOptions::new().read(true).write(true).append(false).open(path)
 }
 
@@ -27,21 +27,21 @@ fn init() {
     let crypto_scheme = AesEncrypter::new("testpassword");
 
     let result = backbonzo::init(
-        PathBuf::new(source_dir.path()),
-        PathBuf::new(backup_dir.path()),
+        PathBuf::from(source_dir.path()),
+        PathBuf::from(backup_dir.path()),
         &crypto_scheme
     );
 
     assert!(result.is_ok());
 
     let second_result = backbonzo::init(
-        PathBuf::new(source_dir.path()),
-        PathBuf::new(backup_dir.path()),
+        PathBuf::from(source_dir.path()),
+        PathBuf::from(backup_dir.path()),
         &crypto_scheme
     );
 
     let is_expected = match second_result {
-        Err(BonzoError::Other(ref str)) => str.as_slice() == "Database file already exists",
+        Err(BonzoError::Other(ref str)) => &str[..] == "Database file already exists",
         _                               => false
     };
 
@@ -51,7 +51,7 @@ fn init() {
 #[test]
 fn backup_wrong_password() {
     let dir = TempDir::new("wrong-password").unwrap();
-    let source_path = PathBuf::new(dir.path());
+    let source_path = PathBuf::from(dir.path());
     let destination_path = source_path.clone();
     let deadline = time::now();
 
@@ -71,7 +71,7 @@ fn backup_wrong_password() {
     );
 
     let is_expected = match backup_result {
-        Err(BonzoError::Other(ref str)) => str.as_slice() == "Password is not the same as in database",
+        Err(BonzoError::Other(ref str)) => &str[..] == "Password is not the same as in database",
         _                               => false
     };
 
@@ -81,7 +81,7 @@ fn backup_wrong_password() {
 #[test]
 fn backup_no_init() {
     let dir = TempDir::new("no-init").unwrap();
-    let source_path = PathBuf::new(dir.path());
+    let source_path = PathBuf::from(dir.path());
     let deadline = time::now();
 
     let backup_result = backbonzo::backup(
@@ -91,7 +91,7 @@ fn backup_no_init() {
         deadline
     );
 
-    assert_eq!(format!("{}", backup_result.unwrap_err()).as_slice(), "Database error: unable to open database file");
+    assert_eq!(&format!("{}", backup_result.unwrap_err())[..], "Database error: unable to open database file");
 }
 
 #[test]
@@ -99,8 +99,8 @@ fn backup_no_init() {
 fn backup_and_restore() {
     let source_temp = TempDir::new("source").unwrap();
     let destination_temp = TempDir::new("destination").unwrap();
-    let source_path = PathBuf::new(source_temp.path());
-    let destination_path = PathBuf::new(destination_temp.path());
+    let source_path = PathBuf::from(source_temp.path());
+    let destination_path = PathBuf::from(destination_temp.path());
     let crypto_scheme = AesEncrypter::new("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
@@ -142,7 +142,7 @@ fn backup_and_restore() {
 
     let timestamp = epoch_milliseconds();
     let restore_temp = TempDir::new("restore").unwrap();
-    let restore_path = PathBuf::new(restore_temp.path());
+    let restore_path = PathBuf::from(restore_temp.path());
 
     let restore_result = backbonzo::restore(
         restore_path.clone(),
@@ -162,11 +162,15 @@ fn backup_and_restore() {
     let mut buffer = Vec::new();
     restored_file.read_to_end(&mut buffer).unwrap();
     
-    assert_eq!(bytes.as_slice(), buffer.as_slice());
+    assert_eq!(&bytes[..], &buffer[..]);
 
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
     assert!(restore_path.join("welcome.txt").exists());
     assert!(restore_path.join("test").join("welcomg!").exists());
+}
+
+fn sleep_ms(ms: i64) {
+    sleep(Duration::milliseconds(ms));
 }
 
 fn epoch_milliseconds() -> u64 {
@@ -180,8 +184,8 @@ fn epoch_milliseconds() -> u64 {
 fn renames() {
     let source_temp = TempDir::new("rename-source").unwrap();
     let destination_temp = TempDir::new("first-destination").unwrap();
-    let source_path = PathBuf::new(source_temp.path());
-    let destination_path = PathBuf::new(destination_temp.path());
+    let source_path = PathBuf::from(source_temp.path());
+    let destination_path = PathBuf::from(destination_temp.path());
     let crypto_scheme = AesEncrypter::new("helloworld");
     let deadline = time::now() + Duration::minutes(10);
 
@@ -220,6 +224,8 @@ fn renames() {
         epoch_milliseconds()
     };
 
+    sleep_ms(100);
+
     // rename file, update modified date and backup again
     let second_timestamp = {
         let prev_path = source_path.join(first_file_name);
@@ -243,6 +249,8 @@ fn renames() {
         epoch_milliseconds()
     };
 
+    sleep_ms(100);
+
     // rename file to first and update timestamp
     let third_timestamp = {
         let first_path = source_path.join(first_file_name);
@@ -261,6 +269,8 @@ fn renames() {
 
         epoch_milliseconds()
     };
+
+    sleep_ms(100);
 
     // delete file
     {
@@ -281,7 +291,7 @@ fn renames() {
     // restore to second state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::new(restore_temp.path());
+        let restore_path = PathBuf::from(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -303,13 +313,13 @@ fn renames() {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        assert_eq!(mixed_message, contents.as_slice());
+        assert_eq!(mixed_message, &contents);
     }
 
     // restore to third state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::new(restore_temp.path());
+        let restore_path = PathBuf::from(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -331,13 +341,13 @@ fn renames() {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        assert_eq!(mixed_message, contents.as_slice());
+        assert_eq!(mixed_message, &contents);
     }
 
     // restore to last state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::new(restore_temp.path());
+        let restore_path = PathBuf::from(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -359,7 +369,7 @@ fn renames() {
     // restore to first state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::new(restore_temp.path());
+        let restore_path = PathBuf::from(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -381,13 +391,13 @@ fn renames() {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        assert_eq!(first_message, contents.as_slice());
+        assert_eq!(first_message, &contents);
     }
 
     // restore to initial state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::new(restore_temp.path());
+        let restore_path = PathBuf::from(restore_temp.path());
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),

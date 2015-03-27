@@ -72,7 +72,7 @@ impl<'sender> FilePathExporter<'sender> {
             .iter()
             .map(|filename| {
                 self.database
-                    .persist_null_alias(directory, filename.as_slice())
+                    .persist_null_alias(directory, &filename)
                     .map_err(|e| BonzoError::Database(e))
             })
             .reduce()

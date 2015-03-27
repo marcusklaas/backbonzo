@@ -150,7 +150,7 @@ mod test {
     #[test]
     fn restoration() {
         let mut summary = super::RestorationSummary::new();
-        let now = time::get_time().sec as i64;        
+        let now = time::get_time().sec;        
 
         let time_diff_seconds = (now - summary.start as i64).abs();
         assert!(time_diff_seconds < 10);
@@ -165,7 +165,7 @@ mod test {
         
         let representation = format!("{:?}", summary);
 
-        assert!(is_prefix("Restored 519 bytes to 1 files, from 3 blocks in ", representation.as_slice()));
+        assert!(is_prefix("Restored 519 bytes to 1 files, from 3 blocks in ", &representation));
     }
 
     #[test]
@@ -185,7 +185,7 @@ mod test {
 
         println!("{}", representation);
         
-        assert!(re.is_match(representation.as_slice()));
+        assert!(re.is_match(&representation));
     }
 
     fn is_prefix(prefix: &str, haystack: &str) -> bool {
