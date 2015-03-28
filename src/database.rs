@@ -298,12 +298,13 @@ impl Database {
         try!(self.connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
         
         let file_id = self.connection.last_insert_rowid();
+
+        let mut statement = try!(self.connection.prepare(
+            "INSERT INTO fileblock (file_id, block_id, ordinal) VALUES ($1, $2, $3);"
+        ));
         
         for (ordinal, block_id) in block_id_list.iter().enumerate() {
-            try!(self.connection.execute(
-                "INSERT INTO fileblock (file_id, block_id, ordinal) VALUES ($1, $2, $3);"
-                , &[&file_id, block_id, &(ordinal as i64)]
-            ));
+            try!(statement.execute(&[&file_id, block_id, &(ordinal as i64)]));
         }
         
         try!(self.persist_alias(directory, Some(FileId(file_id as u64)), filename, Some(last_modified)));
