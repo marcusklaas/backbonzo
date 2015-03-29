@@ -189,10 +189,18 @@ unsafe impl Send for Database { }
 
 impl Database {
     fn new(path: PathBuf, flags: SqliteOpenFlags) -> DatabaseResult<Database> {
-        Ok(Database {
+        let db = Database {
             connection: try!(SqliteConnection::open_with_flags(&path, flags)),
             path: path
-        })
+        };
+
+        {
+            let mut stmt = try!(db.connection.prepare("PRAGMA journal_mode=WAL;"));
+
+            try!(stmt.query(&[]));
+        }
+
+        Ok(db)
     }
     
     pub fn from_file(path: PathBuf) -> DatabaseResult<Database> {
