@@ -2,7 +2,6 @@ use std::io;
 use std::path::{PathBuf, Path};
 use std::fs::{read_dir, PathExt};
 use std::borrow::ToOwned;
-use std::iter::IteratorExt;
 use std::cmp::Ordering;
 use std::mem;
 

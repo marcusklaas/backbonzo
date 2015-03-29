@@ -8,7 +8,6 @@ authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 name = "backbonzo"
 
 [dependencies]
-time = "*"
 glob = "*"
 rustc-serialize = "*"
 rusqlite = "*"
@@ -19,6 +18,10 @@ regex = "*"
 regex_macros = "*"
 docopt = "*"
 tempdir = "*"
+
+[dependencies.time]
+version = "*"
+features = ["std-duration"]
 
 [dependencies.bzip2]
 git = "https://github.com/alexcrichton/bzip2-rs.git"
