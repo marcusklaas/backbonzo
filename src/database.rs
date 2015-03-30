@@ -194,11 +194,10 @@ impl Database {
             path: path
         };
 
-        {
-            let mut stmt = try!(db.connection.prepare("PRAGMA journal_mode=WAL;"));
-
-            try!(stmt.query(&[]));
-        }
+        // set write lock timeout to 1 day
+        let timeout: i64 = 24 * 60 * 60 * 1000;
+        let pragma_query = format!("PRAGMA busy_timeout={};", timeout);
+        assert_eq!(timeout, db.connection.query_row(&pragma_query, &[], |row| row.get(0)));
 
         Ok(db)
     }
