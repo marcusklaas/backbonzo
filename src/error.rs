@@ -1,4 +1,5 @@
-use std::error::{Error, FromError};
+use std::error::Error;
+use std::convert::From;
 use std::io;
 use std::fmt;
 
@@ -35,20 +36,20 @@ impl Error for BonzoError {
     }
 }
 
-impl FromError<io::Error> for BonzoError {
-    fn from_error(error: io::Error) -> BonzoError {
+impl From<io::Error> for BonzoError {
+    fn from(error: io::Error) -> BonzoError {
         BonzoError::Io(error)
     }
 }
 
-impl FromError<CryptoError> for BonzoError {
-    fn from_error(error: CryptoError) -> BonzoError {
+impl From<CryptoError> for BonzoError {
+    fn from(error: CryptoError) -> BonzoError {
         BonzoError::Crypto(error)
     }
 }
 
-impl FromError<DatabaseError> for BonzoError {
-    fn from_error(error: DatabaseError) -> BonzoError {
+impl From<DatabaseError> for BonzoError {
+    fn from(error: DatabaseError) -> BonzoError {
         BonzoError::Database(error)
     }
 }

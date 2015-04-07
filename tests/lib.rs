@@ -1,4 +1,4 @@
-#![feature(collections, std_misc, convert, path_ext, thread_sleep)]
+#![feature(collections, path_ext)]
 
 extern crate backbonzo;
 extern crate time;
@@ -7,13 +7,11 @@ extern crate tempdir;
 use backbonzo::{AesEncrypter, BonzoError};
 use std::io::{Read, Write, self};
 use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions};
-use std::time::duration::Duration;
-use time::get_time;
-use std::path::PathBuf;
+use time::{Duration, get_time};
 use tempdir::TempDir;
 use std::convert::AsRef;
-use std::path::Path;
-use std::thread::sleep;
+use std::path::{PathBuf, Path};
+use std::thread::sleep_ms;
 
 fn open_read_write<P: AsRef<Path>>(path: P) -> io::Result<File> {
     OpenOptions::new().read(true).write(true).append(false).open(path)
@@ -169,10 +167,6 @@ fn backup_and_restore() {
     assert!(restore_path.join("test").join("welcomg!").exists());
 }
 
-fn sleep_ms(ms: i64) {
-    sleep(Duration::milliseconds(ms));
-}
-
 fn epoch_milliseconds() -> u64 {
     let stamp = get_time();
         
@@ -313,7 +307,7 @@ fn renames() {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        assert_eq!(mixed_message, &contents);
+        assert_eq!(mixed_message, &contents[..]);
     }
 
     // restore to third state
@@ -341,7 +335,7 @@ fn renames() {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        assert_eq!(mixed_message, &contents);
+        assert_eq!(&mixed_message[..], &contents[..]);
     }
 
     // restore to last state
@@ -391,7 +385,7 @@ fn renames() {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        assert_eq!(first_message, &contents);
+        assert_eq!(&first_message[..], &contents[..]);
     }
 
     // restore to initial state

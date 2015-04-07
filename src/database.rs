@@ -16,7 +16,8 @@ use std::fs::{PathExt, File};
 use std::path::PathBuf;
 use std::collections::HashSet;
 use std::iter::FromIterator;
-use std::error::{FromError, Error};
+use std::error::Error;
+use std::convert::From;
 use std::fmt;
 
 pub struct DatabaseError {
@@ -37,8 +38,8 @@ impl Error for DatabaseError {
     }
 }
 
-impl FromError<SqliteError> for DatabaseError {
-    fn from_error(error: SqliteError) -> DatabaseError {
+impl From<SqliteError> for DatabaseError {
+    fn from(error: SqliteError) -> DatabaseError {
         DatabaseError {
             description: error.description().to_string(),
             cause: Some(Box::new(error))
@@ -233,14 +234,14 @@ impl Database {
                     })
                     .collect()
             })
-            .map_err(FromError::from_error)
+            .map_err(From::from)
     }
 
     pub fn to_bytes(self) -> BonzoResult<Vec<u8>> {
         try!(
             self.connection
                 .close()
-                .map_err(DatabaseError::from_error)
+                .map_err(DatabaseError::from)
         );
 
         let mut buffer = Vec::new();
@@ -288,7 +289,8 @@ impl Database {
             "SELECT name FROM directory WHERE id = $1;",
             &[&directory],
             |row| row.get::<String>(0)
-        ).map_err(FromError::from_error)
+        )
+        .map_err(From::from)
     }
 
     fn get_file_block_list(&self, file_id: FileId) -> DatabaseResult<Vec<BlockId>> {
@@ -296,7 +298,8 @@ impl Database {
             "SELECT block_id FROM fileblock WHERE file_id = $1 ORDER BY ordinal ASC;",
             &[&file_id],
             |row| row.get(0)
-        ).map_err(FromError::from_error)
+        )
+        .map_err(From::from)
     }
 
     pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[BlockId]) -> DatabaseResult<()> {
@@ -316,7 +319,7 @@ impl Database {
         
         try!(self.persist_alias(directory, Some(FileId(file_id as u64)), filename, Some(last_modified)));
 
-        transaction.commit().map_err(FromError::from_error)
+        transaction.commit().map_err(From::from)
     }
 
     pub fn persist_alias(&self, directory: Directory, file_id: Option<FileId>, filename: &str, last_modified: Option<u64>) -> DatabaseResult<()> {
@@ -326,12 +329,14 @@ impl Database {
         self.connection.execute(
             "INSERT INTO alias (directory_id, file_id, name, modified, timestamp) VALUES ($1, $2, $3, $4, $5);",
             &[&directory, &file_id, &filename, &signed_modified, &timestamp]
-        ).map(|_|()).map_err(FromError::from_error)
+        )
+        .map(|_|())
+        .map_err(From::from)
     }
 
     pub fn persist_null_alias(&self, directory: Directory, filename: &str) -> DatabaseResult<()> {         
         self.persist_alias(directory, None, filename, None)
-            .map_err(FromError::from_error)
+            .map_err(From::from)
     }
 
     pub fn persist_block(&self, hash: &str) -> DatabaseResult<BlockId> {
@@ -348,7 +353,8 @@ impl Database {
             "SELECT SUM(id) FROM file WHERE hash = $1;",
             &[&hash],
             |row| row.get(0)
-        ).map_err(FromError::from_error)
+        )
+        .map_err(From::from)
     }
 
     pub fn alias_known(&self, directory: Directory, filename: &str, modified: u64) -> DatabaseResult<bool> {
@@ -358,7 +364,8 @@ impl Database {
             WHERE modified >= $3 AND file_id IS NOT NULL;",
             &[&directory, &filename, &(modified as i64)],
             |row| row.get::<i64>(0) > 0
-        ).map_err(FromError::from_error)
+        )
+        .map_err(From::from)
     }
 
     pub fn block_hash_from_id(&self, id: BlockId) -> DatabaseResult<String> {
@@ -366,7 +373,8 @@ impl Database {
             "SELECT hash FROM block WHERE id = $1;",
             &[&id],
             |row| row.get::<String>(0)
-        ).map_err(FromError::from_error)
+        )
+        .map_err(From::from)
     }
 
     pub fn block_id_from_hash(&self, hash: &str) -> DatabaseResult<Option<BlockId>> {
@@ -374,7 +382,8 @@ impl Database {
             "SELECT SUM(id) FROM block WHERE hash = $1;",
             &[&hash],
             |row| row.get(0)
-        ).map_err(FromError::from_error)
+        )
+        .map_err(From::from)
     }
 
     pub fn get_directory(&self, parent: Directory, name: &str) -> DatabaseResult<Directory> {
@@ -397,7 +406,7 @@ impl Database {
 
     pub fn set_key(&self, key: &str, value: &str) -> DatabaseResult<i32> {
         self.connection.execute("INSERT INTO setting (key, value) VALUES ($1, $2);", &[&key, &value])
-            .map_err(FromError::from_error)
+            .map_err(From::from)
     }
 
     pub fn get_key(&self, key: &str) -> DatabaseResult<Option<String>> {
@@ -405,7 +414,8 @@ impl Database {
             "SELECT value FROM setting WHERE key = $1;",
             &[&key],
             |row| row.get(0)
-        ).map_err(FromError::from_error)
+        )
+        .map_err(From::from)
     }
 
     // TODO: return number of deleted rows?
@@ -421,7 +431,7 @@ impl Database {
             &[&(timestamp as i64)]
         )
         .map(|_| ())
-        .map_err(FromError::from_error)
+        .map_err(From::from)
     }
 
     // TODO: return number of deleted rows?
@@ -439,7 +449,7 @@ impl Database {
             )
         })
         .map(|_| ())
-        .map_err(FromError::from_error)
+        .map_err(From::from)
     }
 
     pub fn get_unused_blocks(&self) -> DatabaseResult<Vec<(BlockId, String)>> {
@@ -455,7 +465,9 @@ impl Database {
         self.connection.execute(
             "DELETE FROM block WHERE id = $1;",
             &[&id]
-        ).map(|_| ()).map_err(FromError::from_error)
+        )
+        .map(|_| ())
+        .map_err(From::from)
     }
 
     pub fn setup(&self) -> DatabaseResult<()> {
@@ -507,7 +519,7 @@ impl Database {
          .map(|&query| self.connection.execute(query, &[]))
          .reduce()
          .map(|_| ())
-         .map_err(FromError::from_error)
+         .map_err(From::from)
     }
 }
 

@@ -13,7 +13,8 @@ use super::file_chunks::file_chunks;
 use std::path::Path;
 use std::io;
 use std::fmt;
-use std::error::{FromError, Error};
+use std::error::Error;
+use std::convert::From;
 
 macro_rules! do_while_match (($b: block, $e: pat) => (while let $e = $b {}));
 
@@ -30,8 +31,8 @@ impl Error for CryptoError {
     }
 }
 
-impl FromError<SymmetricCipherError> for CryptoError {
-    fn from_error(_: SymmetricCipherError) -> CryptoError {
+impl From<SymmetricCipherError> for CryptoError {
+    fn from(_: SymmetricCipherError) -> CryptoError {
         CryptoError
     }
 }
@@ -50,7 +51,7 @@ pub trait CryptoScheme: Send + Sync + Copy {
     fn decrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct AesEncrypter {
     key: [u8; 32]
 }

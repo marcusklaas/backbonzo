@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::path::{PathBuf, Path};
 use std::thread::spawn;
-use std::error::FromError;
+use std::convert::From;
 
 use bzip2::{Compress};
 use bzip2::reader::BzCompressor;
@@ -150,7 +150,7 @@ pub fn process_block<C: CryptoScheme>(clear_text: &[u8], crypto_scheme: &C) -> B
     let mut buffer = Vec::new();
     try!(compressor.read_to_end(&mut buffer));
 
-    crypto_scheme.encrypt_block(&buffer).map_err(FromError::from_error)
+    crypto_scheme.encrypt_block(&buffer).map_err(From::from)
 }
 
 // Starts a new thread in which the given source path is recursively walked
@@ -198,9 +198,8 @@ pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypt
 
 #[cfg(test)]
 mod test {
-    use std::thread::sleep;
+    use std::thread::sleep_ms;
     use std::path::PathBuf;
-    use std::time::Duration;
 
     use super::super::tempdir::TempDir;
     use super::super::write_to_disk;
@@ -232,7 +231,7 @@ mod test {
         let receiver = super::start_export_thread(&database, &crypto_scheme, 10000000, temp_dir.path()).unwrap();
 
         // give the export thread plenty of time to process all files
-        sleep(Duration::milliseconds(200));
+        sleep_ms(200);
 
         // we should receive two messages for each file: one for its block and
         // one for the file completion.

@@ -1,7 +1,6 @@
 [package]
-
 name = "backbonzo"
-version = "0.4.6"
+version = "0.4.7"
 authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 
 [lib]
@@ -15,13 +14,9 @@ libsqlite3-sys = "*"
 rust-crypto = "*"
 rand = "*"
 regex = "*"
-regex_macros = "*"
 docopt = "*"
 tempdir = "*"
-
-[dependencies.time]
-version = "*"
-features = ["std-duration"]
+time = "*"
 
 [dependencies.bzip2]
 git = "https://github.com/alexcrichton/bzip2-rs.git"
@@ -36,7 +31,6 @@ git = "https://github.com/mahkoh/comm"
 git = "https://github.com/marcusklaas/iter-reduce"
 
 [[bin]]
-
 name = "backbonzo"
 
 # The release profile, used for `cargo build --release`

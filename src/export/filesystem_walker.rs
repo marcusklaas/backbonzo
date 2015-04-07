@@ -223,8 +223,7 @@ pub fn newest_first_walker(dir: &Path, recursive: bool) -> io::Result<NewestFirs
 
 #[cfg(test)]
 mod test {
-    use std::thread::sleep;
-    use std::time::Duration;
+    use std::thread::sleep_ms;
     use std::fs::create_dir_all;
 
     use super::super::super::tempdir::TempDir;
@@ -243,28 +242,28 @@ mod test {
             write_to_disk(&file_path, b"test123").unwrap();
         }
 
-        sleep(Duration::milliseconds(50));
+        sleep_ms(50);
 
         {
             let file_path = sub_dir.join("firstfile");
             write_to_disk(&file_path, b"yolo").unwrap();
         }
 
-        sleep(Duration::milliseconds(50));
+        sleep_ms(50);
 
         {
             let file_path = root_path.join("second");
             write_to_disk(&file_path, b"hello").unwrap();
         }
 
-        sleep(Duration::milliseconds(50));
+        sleep_ms(50);
 
         {
             let file_path = root_path.join("third");
             write_to_disk(&file_path, b"waddaa").unwrap();
         }
 
-        sleep(Duration::milliseconds(50));
+        sleep_ms(50);
 
         {
             let file_path = sub_dir.join("deadlast");
@@ -281,7 +280,7 @@ mod test {
             })
             .collect();
 
-        assert_eq!(&["sub", "deadlast", "third", "second", "firstfile", "filezero"], &all);
+        assert_eq!(&["sub", "deadlast", "third", "second", "firstfile", "filezero"][..], &all[..]);
 
         let flat_list = super::newest_first_walker(temp_dir.path(), false).unwrap();
 
@@ -293,6 +292,6 @@ mod test {
             })
             .collect();
 
-        assert_eq!(&["sub", "third", "second", "filezero"], &directory);
+        assert_eq!(&["sub", "third", "second", "filezero"][..], &directory[..]);
     }
 }

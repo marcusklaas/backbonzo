@@ -1,4 +1,3 @@
-#![feature(std_misc, convert)]
 #![cfg(not(test))]
 
 extern crate rustc_serialize;
@@ -8,7 +7,7 @@ extern crate time;
 
 use docopt::Docopt;
 use std::path::PathBuf;
-use std::time::duration::Duration;
+use time::Duration;
 use std::fmt::Debug;
 use std::io::{Write, stderr};
 use backbonzo::{init, backup, restore, epoch_milliseconds, BonzoResult, AesEncrypter};

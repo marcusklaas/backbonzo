@@ -76,7 +76,7 @@ impl fmt::Debug for RestorationSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let seconds_passed = self.duration().num_seconds();
         let byte_desc = format_bytes(self.bytes);
-        
+
         write!(
             f,
             "Restored {} to {} files, from {} blocks in {} seconds",
@@ -101,7 +101,7 @@ impl BackupSummary {
         BackupSummary {
             summary: Summary::new(),
             source_bytes: 0
-        }            
+        }
     }
 
     pub fn add_block(&mut self, block: &[u8], source_bytes: u64) {
@@ -119,7 +119,7 @@ impl fmt::Debug for BackupSummary {
         let seconds_passed = self.summary.duration().num_seconds();
         let compression_ratio = (self.summary.bytes as f64) / (self.source_bytes as f64);
         let byte_desc = format_bytes(self.summary.bytes);
-                
+
         write!(
             f,
             "Backed up {} files, into {} blocks containing {}, in {} seconds. Compression ratio: {}",
@@ -141,16 +141,14 @@ impl fmt::Display for BackupSummary {
 #[cfg(test)]
 mod test {
     extern crate regex;
-    #[no_link] extern crate regex_macros;
 
     use super::super::time;
-    use std::num::SignedInt;
     use std::iter::repeat;
-    
+
     #[test]
     fn restoration() {
         let mut summary = super::RestorationSummary::new();
-        let now = time::get_time().sec;        
+        let now = time::get_time().sec;
 
         let time_diff_seconds = (now - summary.start as i64).abs();
         assert!(time_diff_seconds < 10);
@@ -162,7 +160,7 @@ mod test {
         summary.add_block(&vec[990..999]);
 
         summary.add_file();
-        
+
         let representation = format!("{:?}", summary);
 
         assert!(is_prefix("Restored 519 bytes to 1 files, from 3 blocks in ", &representation));
@@ -179,12 +177,12 @@ mod test {
         summary.add_file();
         summary.add_file();
 
-        let re = regex!(r"Backed up 2 files, into 1 blocks containing 10 bytes, in \d+ seconds. Compression ratio: 0.1");
+        let re = ::regex::Regex::new(r"Backed up 2 files, into 1 blocks containing 10 bytes, in \d+ seconds. Compression ratio: 0.1").unwrap();
 
         let representation = format!("{:?}", summary);
 
         println!("{}", representation);
-        
+
         assert!(re.is_match(&representation));
     }
 

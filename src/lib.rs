@@ -1,7 +1,4 @@
-#![feature(collections, libc, path_ext, std_misc, core, plugin, fs_time, convert)]
-#![feature(thread_sleep)]
-
-#![plugin(regex_macros)]
+#![feature(collections, libc, path_ext, std_misc, core, plugin, fs_time)]
 
 extern crate rustc_serialize;
 extern crate time;
@@ -19,8 +16,7 @@ use std::io::{self, Read, Write, BufReader};
 use std::fs::{remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
 use std::env::current_dir;
-use std::error::FromError;
-use std::convert::AsRef;
+use std::convert::{From, AsRef};
 
 use tempdir::TempDir;
 use bzip2::reader::BzDecompressor;
@@ -45,16 +41,16 @@ mod error;
 pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 pub static MAX_ALIAS_AGE: u64 = 183 * 24 * 60 * 60 * 1000; // TODO: this should be a parameter
 
-#[derive(Copy, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Directory {
     Root,
     Child(i64)
 }
 
-#[derive(Copy, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct FileId(u64);
 
-#[derive(Copy, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct BlockId(u64);
 
 pub struct BackupManager<C> where C: CryptoScheme + 'static {
@@ -133,7 +129,7 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
             })
             .map(|alias| {
                 alias
-                    .map_err(FromError::from_error)
+                    .map_err(From::from)
                     .and_then(|(ref path, ref block_list)| {
                         self.restore_file(path, &block_list, &mut summary)
                     })
@@ -393,7 +389,6 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod test {
     use std::io::{Read, Write, BufReader};
     use std::fs::{create_dir_all, File, copy};
-    use std::time::duration::Duration;
     use std::path::PathBuf;
 
     use super::tempdir::TempDir;
@@ -426,7 +421,7 @@ mod test {
             Err(e) => panic!("{:?}", e.to_string())
         }
 
-        let deadline = time::now() + Duration::seconds(30);
+        let deadline = time::now() + time::Duration::seconds(30);
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
         init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
@@ -447,7 +442,7 @@ mod test {
         write_to_disk(&file_one_path, file_one_content).ok().expect("write input file one ");
         write_to_disk(&file_two_path, file_two_content).ok().expect("write input file two");
 
-        let deadline = time::now() + Duration::seconds(30);
+        let deadline = time::now() + time::Duration::seconds(30);
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
         init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
@@ -492,7 +487,7 @@ mod test {
 
         let retrieved_bytes = super::load_processed_block(&file_path, &crypto_scheme).unwrap();
 
-        assert_eq!(&bytes, &retrieved_bytes);
+        assert_eq!(&bytes[..], &retrieved_bytes[..]);
     }
     
     #[test]
