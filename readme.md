@@ -23,6 +23,8 @@ installation
 * `$ cargo build --release`
 * `$ sudo cp target/release/backbonzo /usr/local/bin/backbonzo`
 
+Note: backbonzo relies on [the comm crate](http://www.github.com/mahkoh/comm). Since this crate is not rust 1.0-beta compatible, neither is backbonzo. This will hopefully change before rust 1.0 final.
+
 usage
 -----
 There are three modes of operation: init, backup and restore. The init operation creates a hidden file in the source directory containing meta data. This file keeps track of the state of your backup. TBC
