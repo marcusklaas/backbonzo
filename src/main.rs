@@ -28,7 +28,8 @@ Options:
   -b --blocksize=<bs>        Size of blocks in kilobytes [default: 1000].
   -t --timestamp=<mseconds>  State to restore to in milliseconds since epoch [default: 0].
   -T --timeout=<seconds>     Maximum execution time in seconds [default: 0].
-  -f --filter=<exp>          Regular expression for paths [default: **].
+  -f --filter=<exp>          Glob expression for paths to restore [default: **].
+  -a --age=<days>            Number of days to retain old data [default: 183]. 
 ";
 
 #[derive(RustcDecodable, Debug)]
@@ -42,14 +43,8 @@ struct Args {
     pub flag_key: String,
     pub flag_timestamp: u64,
     pub flag_timeout: u64,
-    pub flag_filter: String
-}
-
-#[derive(RustcDecodable, Debug)]
-enum Operation {
-    Init,
-    Backup,
-    Restore
+    pub flag_filter: String,
+    pub flag_age: u32
 }
 
 fn main() {
@@ -58,15 +53,6 @@ fn main() {
                             .unwrap_or_else(|e| e.exit());
     let source_path = PathBuf::from(&args.flag_source);
     let backup_path = PathBuf::from(&args.flag_destination);
-    let block_bytes = 1000 * (args.flag_blocksize as usize);
-    let deadline = time::now() + match args.flag_timeout {
-        0    => Duration::weeks(52),
-        secs => Duration::seconds(secs as i64)
-    };
-    let timestamp = match args.flag_timestamp {
-        0 => epoch_milliseconds(),
-        v => v
-    };
     let password = args.flag_key;
     let crypto_scheme = AesEncrypter::new(&password);
 
@@ -75,10 +61,22 @@ fn main() {
         handle_result(result);
     }
     else if args.cmd_backup {
-        let result = backup(source_path, block_bytes, &crypto_scheme, deadline);
+	    let deadline = time::now() + match args.flag_timeout {
+	        0    => Duration::weeks(52),
+	        secs => Duration::seconds(secs as i64)
+	    };
+	    let max_alias_age_milliseconds = args.flag_age as u64 * 24 * 60 * 60 * 1000;
+    	let block_bytes = 1000 * (args.flag_blocksize as usize);
+
+        let result = backup(source_path, block_bytes, &crypto_scheme, max_alias_age_milliseconds, deadline);
         handle_result(result);
     }
     else if args.cmd_restore {
+        let timestamp = match args.flag_timestamp {
+	        0 => epoch_milliseconds(),
+	        v => v
+	    };
+
         let result = restore(source_path, backup_path, &crypto_scheme, timestamp, args.flag_filter);
         handle_result(result);
     }

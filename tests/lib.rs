@@ -65,6 +65,7 @@ fn backup_wrong_password() {
         source_path,
         1000000,
         &AesEncrypter::new("differentpassword"),
+        0,
         deadline
     );
 
@@ -86,6 +87,7 @@ fn backup_no_init() {
         source_path,
         1000000,
         &AesEncrypter::new("differentpassword"),
+        0,
         deadline
     );
 
@@ -133,6 +135,7 @@ fn backup_and_restore() {
         source_path.clone(),
         1000000,
         &crypto_scheme,
+        0,
         deadline
     );
 
@@ -182,6 +185,7 @@ fn renames() {
     let destination_path = PathBuf::from(destination_temp.path());
     let crypto_scheme = AesEncrypter::new("helloworld");
     let deadline = time::now() + Duration::minutes(10);
+    let max_age_milliseconds = 60 * 60 * 1000;
 
     assert!(
         backbonzo::init(
@@ -210,6 +214,7 @@ fn renames() {
             source_path.clone(),
             1000000,
             &crypto_scheme,
+            max_age_milliseconds,
             deadline
         );
 
@@ -235,6 +240,7 @@ fn renames() {
             source_path.clone(),
             1000000,
             &crypto_scheme,
+            max_age_milliseconds,
             deadline
         );
 
@@ -256,6 +262,7 @@ fn renames() {
             source_path.clone(),
             1000000,
             &crypto_scheme,
+            max_age_milliseconds,
             deadline
         );
 
@@ -276,6 +283,7 @@ fn renames() {
             source_path.clone(),
             1000000,
             &crypto_scheme,
+            max_age_milliseconds,
             deadline
         );
 

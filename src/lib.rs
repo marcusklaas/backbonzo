@@ -39,7 +39,6 @@ mod file_chunks;
 mod error;
 
 pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
-pub static MAX_ALIAS_AGE: u64 = 183 * 24 * 60 * 60 * 1000; // TODO: this should be a parameter
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Directory {
@@ -317,19 +316,31 @@ fn decode_path<P: AsRef<Path>>(path: &P) -> PathBuf {
     PathBuf::from(path.as_ref())
 }
 
-pub fn backup<C: CryptoScheme + 'static>(source_path: PathBuf, block_bytes: usize, crypto_scheme: &C, deadline: time::Tm) -> BonzoResult<BackupSummary> {
+pub fn backup<C: CryptoScheme + 'static>(
+    source_path: PathBuf,
+    block_bytes: usize,
+    crypto_scheme: &C,
+    max_age_milliseconds: u64,
+    deadline: time::Tm
+) -> BonzoResult<BackupSummary> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let database = try!(Database::from_file(database_path));
     let mut manager = try!(BackupManager::new(database, source_path, crypto_scheme));
     let summary = try!(manager.update(block_bytes, deadline));
 
-    try!(manager.cleanup(MAX_ALIAS_AGE));
+    try!(manager.cleanup(max_age_milliseconds));
     try!(manager.export_index());
 
     Ok(summary)
 }
 
-pub fn restore<C: CryptoScheme + 'static>(source_path: PathBuf, backup_path: PathBuf, crypto_scheme: &C, timestamp: u64, filter: String) -> BonzoResult<RestorationSummary> {
+pub fn restore<C: CryptoScheme + 'static>(
+    source_path: PathBuf,
+    backup_path: PathBuf,
+    crypto_scheme: &C,
+    timestamp: u64,
+    filter: String
+) -> BonzoResult<RestorationSummary> {
     let temp_directory = try!(TempDir::new("bonzo"));
     let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), crypto_scheme));
     let database = try!(Database::from_file(decrypted_index_path));
@@ -425,7 +436,7 @@ mod test {
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
         init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
-        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
+        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, 0, deadline).ok().expect("backup successful");
     }
 
     // Checks that the hash of the restored data is as expected
@@ -446,7 +457,7 @@ mod test {
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
         init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
-        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, deadline).ok().expect("backup successful");
+        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, 0, deadline).ok().expect("backup successful");
         
         let file_one_hash = hash_file(&file_one_path).ok().expect("compute hash");
         let file_two_hash = hash_file(&file_two_path).ok().expect("compute hash");
