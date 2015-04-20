@@ -101,14 +101,16 @@ impl fmt::Debug for RestorationSummary {
 // Only newly written files and blocks will be included in this summary.
 pub struct BackupSummary {
     summary: Summary,
-    source_bytes: u64
+    source_bytes: u64,
+    pub timeout: bool
 }
 
 impl BackupSummary {
     pub fn new() -> BackupSummary {
         BackupSummary {
             summary: Summary::new(),
-            source_bytes: 0
+            source_bytes: 0,
+            timeout: false
         }
     }
 
