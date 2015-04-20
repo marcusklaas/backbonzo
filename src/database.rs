@@ -198,7 +198,17 @@ impl Database {
         // set write lock timeout to 1 day
         let timeout: i64 = 24 * 60 * 60 * 1000;
         let pragma_query = format!("PRAGMA busy_timeout={};", timeout);
-        assert_eq!(timeout, db.connection.query_row(&pragma_query, &[], |row| row.get(0)));
+        let query_result = db.connection.query_row(&pragma_query, &[], |row| row.get(0));
+
+        if timeout != query_result {
+            return Err(DatabaseError {
+                description: "Could not set timeout".to_string(),
+                cause: None
+            });
+        }
+
+        try!(db.connection.execute("PRAGMA synchronous=OFF;", &[]));
+        try!(db.connection.execute("PRAGMA temp_store=MEMORY;", &[]));
 
         Ok(db)
     }
