@@ -1,6 +1,6 @@
 [package]
 name = "backbonzo"
-version = "0.4.8"
+version = "0.4.9"
 authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 
 [lib]
@@ -17,6 +17,7 @@ regex = "*"
 docopt = "*"
 tempdir = "*"
 time = "*"
+termios = "*"
 
 [dependencies.bzip2]
 git = "https://github.com/alexcrichton/bzip2-rs.git"

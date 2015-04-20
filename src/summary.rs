@@ -14,6 +14,14 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+pub struct InitSummary;
+
+impl fmt::Debug for InitSummary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Initialized backbonzo index")
+    }
+}
+
 pub struct Summary {
     bytes:  u64,
     blocks: u64,

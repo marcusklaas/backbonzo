@@ -26,7 +26,7 @@ use time::get_time;
 
 use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
-use summary::{RestorationSummary, BackupSummary};
+use summary::{RestorationSummary, BackupSummary, InitSummary};
 
 pub use error::{BonzoError, BonzoResult};
 pub use crypto::{CryptoScheme, AesEncrypter, hash_block};
@@ -279,7 +279,7 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
 }
 
 // TODO: move this to main.rs
-pub fn init<C: CryptoScheme>(source_path: PathBuf, backup_path: PathBuf, crypto_scheme: &C) -> BonzoResult<()> {
+pub fn init<C: CryptoScheme>(source_path: PathBuf, backup_path: PathBuf, crypto_scheme: &C) -> BonzoResult<InitSummary> {
     let database_path = source_path.join(DATABASE_FILENAME);
     let database = try!(Database::create(database_path));
     let hash = crypto_scheme.hash_password();
@@ -291,7 +291,7 @@ pub fn init<C: CryptoScheme>(source_path: PathBuf, backup_path: PathBuf, crypto_
 
     try!(database.set_key("backup_path", &encoded_backup_path));
 
-    Ok(())
+    Ok(InitSummary)
 }
 
 fn create_parent_dir(path: &Path) -> BonzoResult<()> {
