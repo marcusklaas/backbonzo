@@ -43,7 +43,7 @@ impl fmt::Display for CryptoError {
     }
 }
 
-pub trait CryptoScheme: Send + Sync + Copy {
+pub trait CryptoScheme: Send + Sync + Copy + 'static {
     fn hash_password(&self) -> String;
 
     fn encrypt_block(&self, block: &[u8]) -> Result<Vec<u8>, CryptoError>;

@@ -52,14 +52,14 @@ pub struct FileId(u64);
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct BlockId(u64);
 
-pub struct BackupManager<C> where C: CryptoScheme + 'static {
+pub struct BackupManager<C> where C: CryptoScheme {
     database: Database,
     source_path: PathBuf,
     backup_path: PathBuf,
     crypto_scheme: Box<C>
 }
 
-impl<C: CryptoScheme + 'static> BackupManager<C> {
+impl<C: CryptoScheme> BackupManager<C> {
     pub fn new(database: Database, source_path: PathBuf, crypto_scheme: &C) -> BonzoResult<BackupManager<C>> {
         let backup_path = try!(
             database.get_key("backup_path")
@@ -99,6 +99,7 @@ impl<C: CryptoScheme + 'static> BackupManager<C> {
 
         while let Ok(msg) = channel_receiver.recv_sync() {
             if time::now_utc() > deadline {
+                summary.timeout = true;
                 break;
             }
 
@@ -316,7 +317,7 @@ fn decode_path<P: AsRef<Path>>(path: &P) -> PathBuf {
     PathBuf::from(path.as_ref())
 }
 
-pub fn backup<C: CryptoScheme + 'static>(
+pub fn backup<C: CryptoScheme>(
     source_path: PathBuf,
     block_bytes: usize,
     crypto_scheme: &C,
@@ -328,13 +329,16 @@ pub fn backup<C: CryptoScheme + 'static>(
     let mut manager = try!(BackupManager::new(database, source_path, crypto_scheme));
     let summary = try!(manager.update(block_bytes, deadline));
 
-    try!(manager.cleanup(max_age_milliseconds));
+    if ! summary.timeout {
+        try!(manager.cleanup(max_age_milliseconds));
+    }
+    
     try!(manager.export_index());
 
     Ok(summary)
 }
 
-pub fn restore<C: CryptoScheme + 'static>(
+pub fn restore<C: CryptoScheme>(
     source_path: PathBuf,
     backup_path: PathBuf,
     crypto_scheme: &C,
