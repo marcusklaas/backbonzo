@@ -101,71 +101,79 @@ pub fn send_files(source_path: &Path, database: Database, mut channel: spmc::Pro
 // information along with the paths. Is guaranteed to return directories before
 // their children
 pub struct FilesystemWalker<'a, T: 'static> {
+    root: PathBuf,
     cur: Vec<(PathBuf, T)>,
     file_map: &'a Fn(&Path) -> io::Result<T>,
     sort_map: &'a Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering,
-    recursive: bool
+    recursive: bool,
+    symlinks: bool
 }
 
 impl<'a, T> Iterator for FilesystemWalker<'a, T> {
     type Item = io::Result<(PathBuf, T)>;
 
     fn next(&mut self) -> Option<io::Result<(PathBuf, T)>> {
-        match self.cur.pop() {
-            Some((path, extra)) => {
-                if self.recursive && path.is_dir() {
-                    match self.read_dir_sorted(&path) {
-                        Err(e) => Some(Err(e)),
-                        Ok(..) => Some(Ok((path, extra)))
-                    }
-                }
-                else {
-                    Some(Ok((path, extra)))
-                }
-            },
-            None => None
-        }
+        self.cur.pop().map(|(path, extra)| {
+            if self.recursive && path.is_dir() {
+                self.read_dir_sorted(&path)
+                    .map(|_| (path, extra))
+            }
+            else {
+                Ok((path, extra))
+            }
+        })
     }
 }
 
+// TODO: add tests for symlinks, non-symlinks case
 impl<'a, T> FilesystemWalker<'a, T> {
-    pub fn new<F, S>(dir: &Path, file_map: &'a F, sort_map: &'a S, recursive: bool) -> io::Result<FilesystemWalker<'a, T>>
-           where F: Fn(&Path) -> io::Result<T>,
-                 S: Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering {
+    pub fn new<F, S>(dir: &Path,
+                     file_map: &'a F,
+                     sort_map: &'a S,
+                     recursive: bool,
+                     follow_symlinks: bool)
+                     -> io::Result<FilesystemWalker<'a, T>>
+                         where F: Fn(&Path) -> io::Result<T>,
+                               S: Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering {
         let mut walker = FilesystemWalker {
+            root: dir.to_owned(),
             cur: Vec::new(),
             file_map: file_map,
             sort_map: sort_map,
-            recursive: recursive
+            recursive: recursive,
+            symlinks: follow_symlinks
         };
 
         try!(walker.read_dir_sorted(dir));
 
         Ok(walker)
     }
+
+    // filter out recursive symlinks or all symlinks, depending on
+    // settings
+    fn is_accepted_path(&self, path: &Path) -> io::Result<bool> {
+        path.symlink_metadata().map(|meta| {
+            let is_symlink = meta.file_type().is_symlink();
+
+            !is_symlink || self.symlinks && !path.starts_with(&self.root)
+        })
+    }
     
-    fn read_dir_sorted(&mut self, dir: &Path) -> io::Result<()> {    
-        try!(
-            read_dir(dir)
-            .and_then(|list| list
-                .map(|possible_entry| {
-                    possible_entry.and_then(|entry| {
-                        let path = entry.path();
-                        
-                        (*self.file_map)(&path)
-                            .map(|extra| {
-                                let pair = (path.to_owned(), extra);
-                                self.cur.push(pair);
-                            })
-                    })
-                })
-                .reduce()
-            )
-        );
+    fn read_dir_sorted(&mut self, dir: &Path) -> io::Result<()> {
+        // add the paths and their associated values to the internal buffer
+        for entry in try!(read_dir(dir)) {
+            let path = try!(entry).path();
 
-        let other_self: &FilesystemWalker<'a, T> = unsafe { mem::transmute(&mut *self) };
+            if ! try!(self.is_accepted_path(&path)) {
+                continue;
+            }
 
-        self.cur.sort_by(|a, b| (*other_self.sort_map)(a, b) );
+            let extra = try!((*self.file_map)(&path));
+            let pair = (path.to_owned(), extra);
+            self.cur.push(pair);
+        }
+
+        self.cur.sort_by(self.sort_map);
 
         Ok(())
     }
@@ -211,7 +219,8 @@ pub fn newest_first_walker(dir: &Path, recursive: bool) -> io::Result<NewestFirs
         dir,
         unsafe { mem::copy_lifetime("silly", &*file_map) },
         unsafe { mem::copy_lifetime("wadda", &*sort_map) },
-        recursive
+        recursive,
+        false
     );
 
     Ok(NewestFirst {
@@ -293,5 +302,20 @@ mod test {
             .collect();
 
         assert_eq!(&["sub", "third", "second", "filezero"][..], &directory[..]);
+    }
+
+    #[cfg_attr(target_os = "linux", test)]
+    fn check_loops() {
+        use std::os::unix;
+
+        let temp_dir = TempDir::new("loop-test").ok().expect("make temp");
+        let path = temp_dir.path();
+
+        match unix::fs::symlink(path, &path.join("link")) {
+            Err(e) => panic!("{:?}, {:?}", e, e.kind()),
+            Ok(..) => {}
+        }
+
+        assert!(1 >= super::newest_first_walker(path, true).unwrap().count());
     }
 }

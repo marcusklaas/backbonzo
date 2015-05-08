@@ -13,8 +13,20 @@ use std::convert::AsRef;
 use std::path::{PathBuf, Path};
 use std::thread::sleep_ms;
 
-fn open_read_write<P: AsRef<Path>>(path: P) -> io::Result<File> {
+fn open_read_write<P: AsRef<Path>>(path: &P) -> io::Result<File> {
     OpenOptions::new().read(true).write(true).append(false).open(path)
+}
+
+#[test]
+fn cleanup() {
+    let source_temp = TempDir::new("cleanup-source").unwrap();
+    let destination_temp = TempDir::new("cleanup-dest").unwrap();
+    let source_path = PathBuf::from(source_temp.path());
+    let destination_path = PathBuf::from(destination_temp.path());
+    let crypto_scheme = AesEncrypter::new("testpassword");
+    let deadline = time::now() + Duration::minutes(1);
+
+
 }
 
 #[test]
@@ -177,7 +189,6 @@ fn epoch_milliseconds() -> u64 {
 }
 
 #[test]
-// TODO: add some tiny sleeps -- this test fails sometimes
 fn renames() {
     let source_temp = TempDir::new("rename-source").unwrap();
     let destination_temp = TempDir::new("first-destination").unwrap();
