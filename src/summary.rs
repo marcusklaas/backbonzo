@@ -4,7 +4,7 @@ use self::number_prefix::{decimal_prefix, Standalone, Prefixed};
 
 use std::fmt;
 use std::ops::{Deref, DerefMut};
-use std::time::duration::Duration;
+use std::time::Duration;
 use super::time;
 
 fn format_bytes(bytes: u64) -> String {
@@ -50,9 +50,9 @@ impl Summary {
 
     pub fn duration(&self) -> Duration {
         let now = time::get_time().sec as u64;
-        let seconds_passed = (now - self.start) as i64; 
+        let seconds_passed = now - self.start; 
 
-        Duration::seconds(seconds_passed)
+        Duration::from_secs(seconds_passed)
     }
 }
 
@@ -82,7 +82,7 @@ impl DerefMut for RestorationSummary {
 
 impl fmt::Debug for RestorationSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let seconds_passed = self.duration().num_seconds();
+        let seconds_passed = self.duration().secs();
         let byte_desc = format_bytes(self.bytes);
 
         write!(
@@ -126,7 +126,7 @@ impl BackupSummary {
 
 impl fmt::Debug for BackupSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let seconds_passed = self.summary.duration().num_seconds();
+        let seconds_passed = self.summary.duration().secs();
         let compression_ratio = (self.summary.bytes as f64) / (self.source_bytes as f64);
         let byte_desc = format_bytes(self.summary.bytes);
 

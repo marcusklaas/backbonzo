@@ -1,4 +1,4 @@
-#![feature(collections, libc, path_ext, std_misc, core, plugin, fs_time, file_type)]
+#![feature(collections, libc, path_ext, core, plugin, fs_time, file_type, duration)]
 
 extern crate rustc_serialize;
 extern crate time;

@@ -100,6 +100,8 @@ pub fn send_files(source_path: &Path, database: Database, mut channel: spmc::Pro
 // Walks the filesystem in an order that is defined by sort map, returning extra
 // information along with the paths. Is guaranteed to return directories before
 // their children
+
+// TODO: we should probably take ownership of file_map and sort_map
 pub struct FilesystemWalker<'a, T: 'static> {
     root: PathBuf,
     cur: Vec<(PathBuf, T)>,
