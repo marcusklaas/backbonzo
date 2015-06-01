@@ -26,7 +26,81 @@ fn cleanup() {
     let crypto_scheme = AesEncrypter::new("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
+    let init_result = backbonzo::init(
+        PathBuf::from(&source_path),
+        PathBuf::from(&destination_path),
+        &crypto_scheme
+    );
 
+    assert!(init_result.is_ok());
+
+    // write initial file
+    let file_path = source_path.join("file1");
+    {
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(b"first edition!").ok().expect("Failed writing to file.");
+        assert!(file.sync_all().is_ok());
+    }
+
+    // run backup of file
+    backbonzo::backup(
+        source_path.clone(),
+        1000000,
+        &crypto_scheme,
+        0,
+        deadline
+    ).ok().expect("First backup failed");
+
+    // save timestamp
+    let timestamp = epoch_milliseconds();
+    sleep_ms(100);
+
+    // delete file and re-run backup with forgiving max_age parameter
+    remove_file(&file_path).ok().expect("Couldn't remove file");
+    assert!(file_path.exists() == false);
+
+    backbonzo::backup(
+        source_path.clone(),
+        1000000,
+        &crypto_scheme,
+        60 * 1000,
+        deadline
+    ).ok().expect("Second backup failed");
+
+    // run restore and check that our file is restored
+    backbonzo::restore(
+        source_path.clone(),
+        destination_path.clone(),
+        &crypto_scheme,
+        timestamp,
+        "**".to_owned()
+    ).ok().expect("First restore failed");
+
+    assert!(file_path.exists());
+
+    // delete file again
+    remove_file(&file_path).ok().expect("Couldn't remove file");
+    assert!(file_path.exists() == false);
+
+    // run backup with very strict max_age parameter
+    backbonzo::backup(
+        source_path.clone(),
+        1000000,
+        &crypto_scheme,
+        1,
+        deadline
+    ).ok().expect("Third backup failed");
+
+    // again run restore and make sure that we cleaned up our file
+    backbonzo::restore(
+        source_path.clone(),
+        destination_path.clone(),
+        &crypto_scheme,
+        timestamp,
+        "**".to_owned()
+    ).ok().expect("Second restore failed");
+
+    assert!(file_path.exists() == false);
 }
 
 #[test]
