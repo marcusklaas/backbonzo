@@ -1,7 +1,8 @@
 use std::io::Read;
-use std::path::{PathBuf, Path};
+use std::path::Path;
 use std::thread::spawn;
 use std::convert::From;
+use std::borrow::ToOwned;
 
 use bzip2::{Compress};
 use bzip2::reader::BzCompressor;
@@ -160,7 +161,7 @@ pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypt
     let (block_transmitter, block_receiver) = unsafe { mpsc::new(CHANNEL_BUFFER_SIZE) };
     let (path_transmitter, path_receiver) = unsafe { spmc::new(CHANNEL_BUFFER_SIZE) };
     let sender_database = try!(database.try_clone());
-    let path = PathBuf::from(source_path);
+    let path = source_path.to_owned();
 
     // spawn thread that sends file paths
     spawn(move || {
@@ -199,7 +200,6 @@ pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypt
 #[cfg(test)]
 mod test {
     use std::thread::sleep_ms;
-    use std::path::PathBuf;
 
     use super::super::tempdir::TempDir;
     use super::super::write_to_disk;
@@ -222,8 +222,8 @@ mod test {
         let crypto_scheme = super::super::crypto::AesEncrypter::new(password);
 
         super::super::init(
-            PathBuf::from(temp_dir.path()),
-            PathBuf::from(temp_dir.path()),
+            &temp_dir.path(),
+            &temp_dir.path(),
             &crypto_scheme
         ).unwrap();
 

@@ -1,4 +1,4 @@
-#![feature(collections, libc, path_ext, core, plugin, fs_time, file_type, duration)]
+#![feature(collections, libc, path_ext, core, plugin, fs_time, file_type, duration, into_cow)]
 
 extern crate rustc_serialize;
 extern crate time;
@@ -17,6 +17,7 @@ use std::fs::{remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
 use std::env::current_dir;
 use std::convert::{From, AsRef};
+use std::borrow::IntoCow;
 
 use tempdir::TempDir;
 use bzip2::reader::BzDecompressor;
@@ -280,15 +281,19 @@ impl<C: CryptoScheme> BackupManager<C> {
 }
 
 // TODO: move this to main.rs
-pub fn init<C: CryptoScheme>(source_path: PathBuf, backup_path: PathBuf, crypto_scheme: &C) -> BonzoResult<InitSummary> {
-    let database_path = source_path.join(DATABASE_FILENAME);
+pub fn init<C: CryptoScheme, P: AsRef<Path>>(source_path: &P,
+                                             backup_path: &P,
+                                             crypto_scheme: &C)
+    -> BonzoResult<InitSummary>
+{
+    let database_path = source_path.as_ref().join(DATABASE_FILENAME);
     let database = try!(Database::create(database_path));
     let hash = crypto_scheme.hash_password();
 
     try!(database.setup());
     try!(database.set_key("password", &hash));
 
-    let encoded_backup_path = try!(encode_path(&backup_path));
+    let encoded_backup_path = try!(encode_path(backup_path));
 
     try!(database.set_key("backup_path", &encoded_backup_path));
 
@@ -302,31 +307,32 @@ fn create_parent_dir(path: &Path) -> BonzoResult<()> {
 }
 
 // Takes a path, turns it into an absolute path if necessary
-fn encode_path(path: &Path) -> io::Result<String> {
-    if path.is_relative() {
+fn encode_path<P: AsRef<Path>>(path: &P) -> io::Result<String> {
+    if path.as_ref().is_relative() {
         let mut cwd = try!(current_dir());
         cwd.push(path);
 
         return Ok(cwd.to_string_lossy().into_owned())
     }
 
-    Ok(path.to_string_lossy().into_owned())
+    Ok(path.as_ref().to_string_lossy().into_owned())
 }
 
 fn decode_path<P: AsRef<Path>>(path: &P) -> PathBuf {
     PathBuf::from(path.as_ref())
 }
 
-pub fn backup<C: CryptoScheme>(
-    source_path: PathBuf,
+pub fn backup<'p, C: CryptoScheme, SP: IntoCow<'p, Path>>(
+    source_path: SP,
     block_bytes: usize,
     crypto_scheme: &C,
     max_age_milliseconds: u64,
     deadline: time::Tm
 ) -> BonzoResult<BackupSummary> {
-    let database_path = source_path.join(DATABASE_FILENAME);
+    let source_cow = source_path.into_cow();
+    let database_path = source_cow.join(DATABASE_FILENAME);
     let database = try!(Database::from_file(database_path));
-    let mut manager = try!(BackupManager::new(database, source_path, crypto_scheme));
+    let mut manager = try!(BackupManager::new(database, source_cow.into_owned(), crypto_scheme));
     let summary = try!(manager.update(block_bytes, deadline));
 
     if ! summary.timeout {
@@ -338,19 +344,19 @@ pub fn backup<C: CryptoScheme>(
     Ok(summary)
 }
 
-pub fn restore<C: CryptoScheme>(
-    source_path: PathBuf,
-    backup_path: PathBuf,
+pub fn restore<'p, 's, C: CryptoScheme, SP: IntoCow<'p, Path>, S: IntoCow<'s, str>>(
+    source_path: SP,
+    backup_path: SP,
     crypto_scheme: &C,
     timestamp: u64,
-    filter: String
+    filter: S
 ) -> BonzoResult<RestorationSummary> {
     let temp_directory = try!(TempDir::new("bonzo"));
-    let decrypted_index_path = try!(decrypt_index(&backup_path, temp_directory.path(), crypto_scheme));
+    let decrypted_index_path = try!(decrypt_index(&backup_path.into_cow(), temp_directory.path(), crypto_scheme));
     let database = try!(Database::from_file(decrypted_index_path));
-    let manager = try!(BackupManager::new(database, source_path, crypto_scheme));
+    let manager = try!(BackupManager::new(database, source_path.into_cow().into_owned(), crypto_scheme));
     
-    manager.restore(timestamp, filter)
+    manager.restore(timestamp, filter.into_cow().into_owned())
 }
 
 pub fn epoch_milliseconds() -> u64 {
@@ -404,7 +410,6 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
 mod test {
     use std::io::{Read, Write, BufReader};
     use std::fs::{create_dir_all, File, copy};
-    use std::path::PathBuf;
 
     use super::tempdir::TempDir;
     use super::rand::{Rng, OsRng};
@@ -439,8 +444,8 @@ mod test {
         let deadline = time::now() + time::Duration::seconds(30);
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
-        init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
-        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, 0, deadline).ok().expect("backup successful");
+        init(&source_dir.path(), &dest_dir.path(), &crypto_scheme).ok().expect("init ok");
+        backup(source_dir.path(), 1_000_000, &crypto_scheme, 0, deadline).ok().expect("backup successful");
     }
 
     // Checks that the hash of the restored data is as expected
@@ -460,8 +465,8 @@ mod test {
         let deadline = time::now() + time::Duration::seconds(30);
         let crypto_scheme = super::crypto::AesEncrypter::new("passwerd");
 
-        init(PathBuf::from(source_dir.path()), PathBuf::from(dest_dir.path()), &crypto_scheme).ok().expect("init ok");
-        backup(PathBuf::from(source_dir.path()), 1_000_000, &crypto_scheme, 0, deadline).ok().expect("backup successful");
+        init(&source_dir.path(), &dest_dir.path(), &crypto_scheme).ok().expect("init ok");
+        backup(source_dir.path(), 1_000_000, &crypto_scheme, 0, deadline).ok().expect("backup successful");
         
         let file_one_hash = hash_file(&file_one_path).ok().expect("compute hash");
         let file_two_hash = hash_file(&file_two_path).ok().expect("compute hash");
@@ -472,8 +477,8 @@ mod test {
 
         let restore_dir = TempDir::new("integ-restore").unwrap();
         let result = restore(
-            PathBuf::from(restore_dir.path()),
-            PathBuf::from(dest_dir.path()),
+            restore_dir.path(),
+            dest_dir.path(),
             &crypto_scheme,
             epoch_milliseconds(),
             "**".to_string()

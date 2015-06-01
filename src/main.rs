@@ -79,32 +79,30 @@ fn main() {
                             .and_then(|d| d.decode())
                             .unwrap_or_else(|e| e.exit());
     let password = fetch_password();
-    let source_path = PathBuf::from(&args.flag_source);
-    let backup_path = PathBuf::from(&args.flag_destination);
     let crypto_scheme = AesEncrypter::new(&password);
 
     if args.cmd_init {
-        let result = init(source_path, backup_path, &crypto_scheme);
+        let result = init(&args.flag_source, &args.flag_destination, &crypto_scheme);
         handle_result(result);
     }
     else if args.cmd_backup {
-	    let deadline = time::now() + match args.flag_timeout {
-	        0    => Duration::weeks(52),
-	        secs => Duration::seconds(secs as i64)
-	    };
-	    let max_alias_age_milliseconds = args.flag_age as u64 * 24 * 60 * 60 * 1000;
-    	let block_bytes = 1000 * (args.flag_blocksize as usize);
+        let deadline = time::now() + match args.flag_timeout {
+            0    => Duration::weeks(52),
+            secs => Duration::seconds(secs as i64)
+        };
+        let max_alias_age_milliseconds = args.flag_age as u64 * 24 * 60 * 60 * 1000;
+        let block_bytes = 1000 * (args.flag_blocksize as usize);
 
-        let result = backup(source_path, block_bytes, &crypto_scheme, max_alias_age_milliseconds, deadline);
+        let result = backup(PathBuf::from(args.flag_source), block_bytes, &crypto_scheme, max_alias_age_milliseconds, deadline);
         handle_result(result);
     }
     else if args.cmd_restore {
         let timestamp = match args.flag_timestamp {
-	        0 => epoch_milliseconds(),
-	        v => v
-	    };
+            0 => epoch_milliseconds(),
+            v => v
+        };
 
-        let result = restore(source_path, backup_path, &crypto_scheme, timestamp, args.flag_filter);
+        let result = restore(PathBuf::from(args.flag_source), PathBuf::from(args.flag_destination), &crypto_scheme, timestamp, args.flag_filter);
         handle_result(result);
     }
 }

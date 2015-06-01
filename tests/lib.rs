@@ -10,7 +10,8 @@ use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions};
 use time::{Duration, get_time};
 use tempdir::TempDir;
 use std::convert::AsRef;
-use std::path::{PathBuf, Path};
+use std::borrow::ToOwned;
+use std::path::Path;
 use std::thread::sleep_ms;
 
 fn open_read_write<P: AsRef<Path>>(path: &P) -> io::Result<File> {
@@ -21,14 +22,14 @@ fn open_read_write<P: AsRef<Path>>(path: &P) -> io::Result<File> {
 fn cleanup() {
     let source_temp = TempDir::new("cleanup-source").unwrap();
     let destination_temp = TempDir::new("cleanup-dest").unwrap();
-    let source_path = PathBuf::from(source_temp.path());
-    let destination_path = PathBuf::from(destination_temp.path());
+    let source_path = source_temp.path().to_owned();
+    let destination_path = destination_temp.path().to_owned();
     let crypto_scheme = AesEncrypter::new("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
     let init_result = backbonzo::init(
-        PathBuf::from(&source_path),
-        PathBuf::from(&destination_path),
+        &source_path,
+        &destination_path,
         &crypto_scheme
     );
 
@@ -111,16 +112,16 @@ fn init() {
     let crypto_scheme = AesEncrypter::new("testpassword");
 
     let result = backbonzo::init(
-        PathBuf::from(source_dir.path()),
-        PathBuf::from(backup_dir.path()),
+        &source_dir.path(),
+        &backup_dir.path(),
         &crypto_scheme
     );
 
     assert!(result.is_ok());
 
     let second_result = backbonzo::init(
-        PathBuf::from(source_dir.path()),
-        PathBuf::from(backup_dir.path()),
+        &source_dir.path(),
+        &backup_dir.path(),
         &crypto_scheme
     );
 
@@ -135,14 +136,14 @@ fn init() {
 #[test]
 fn backup_wrong_password() {
     let dir = TempDir::new("wrong-password").unwrap();
-    let source_path = PathBuf::from(dir.path());
+    let source_path = dir.path().to_owned();
     let destination_path = source_path.clone();
     let deadline = time::now();
 
     assert!(
         backbonzo::init(
-            source_path.clone(),
-            destination_path.clone(),
+            &source_path,
+            &destination_path,
             &AesEncrypter::new("testpassword")
         ).is_ok()
     );
@@ -166,7 +167,7 @@ fn backup_wrong_password() {
 #[test]
 fn backup_no_init() {
     let dir = TempDir::new("no-init").unwrap();
-    let source_path = PathBuf::from(dir.path());
+    let source_path = dir.path().to_owned();
     let deadline = time::now();
 
     let backup_result = backbonzo::backup(
@@ -185,8 +186,8 @@ fn backup_no_init() {
 fn backup_and_restore() {
     let source_temp = TempDir::new("source").unwrap();
     let destination_temp = TempDir::new("destination").unwrap();
-    let source_path = PathBuf::from(source_temp.path());
-    let destination_path = PathBuf::from(destination_temp.path());
+    let source_path = source_temp.path().to_owned();
+    let destination_path = destination_temp.path().to_owned();
     let crypto_scheme = AesEncrypter::new("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
@@ -211,8 +212,8 @@ fn backup_and_restore() {
 
     assert!(
         backbonzo::init(
-            source_path.clone(),
-            destination_path.clone(),
+            &source_path,
+            &destination_path,
             &crypto_scheme
         ).is_ok()
     );
@@ -229,14 +230,14 @@ fn backup_and_restore() {
 
     let timestamp = epoch_milliseconds();
     let restore_temp = TempDir::new("restore").unwrap();
-    let restore_path = PathBuf::from(restore_temp.path());
+    let restore_path = restore_temp.path().to_owned();
 
     let restore_result = backbonzo::restore(
         restore_path.clone(),
         destination_path.clone(),
         &crypto_scheme,
         timestamp,
-        String::from_str("**/welco*")
+        "**/welco*".to_owned()
     );
 
     assert!(restore_result.is_ok());
@@ -266,16 +267,16 @@ fn epoch_milliseconds() -> u64 {
 fn renames() {
     let source_temp = TempDir::new("rename-source").unwrap();
     let destination_temp = TempDir::new("first-destination").unwrap();
-    let source_path = PathBuf::from(source_temp.path());
-    let destination_path = PathBuf::from(destination_temp.path());
+    let source_path = source_temp.path().to_owned();
+    let destination_path = destination_temp.path().to_owned();
     let crypto_scheme = AesEncrypter::new("helloworld");
     let deadline = time::now() + Duration::minutes(10);
     let max_age_milliseconds = 60 * 60 * 1000;
 
     assert!(
         backbonzo::init(
-            source_path.clone(),
-            destination_path.clone(),
+            &source_path,
+            &destination_path,
             &crypto_scheme
         ).is_ok()
     );
@@ -378,7 +379,7 @@ fn renames() {
     // restore to second state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::from(restore_temp.path());
+        let restore_path = restore_temp.path().to_owned();
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -406,7 +407,7 @@ fn renames() {
     // restore to third state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::from(restore_temp.path());
+        let restore_path = restore_temp.path().to_owned();
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -434,7 +435,7 @@ fn renames() {
     // restore to last state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::from(restore_temp.path());
+        let restore_path = restore_temp.path().to_owned();
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -456,7 +457,7 @@ fn renames() {
     // restore to first state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::from(restore_temp.path());
+        let restore_path = restore_temp.path().to_owned();
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
@@ -484,7 +485,7 @@ fn renames() {
     // restore to initial state
     {
         let restore_temp = TempDir::new("rename-store").unwrap();
-        let restore_path = PathBuf::from(restore_temp.path());
+        let restore_path = restore_temp.path().to_owned();
 
         let restore_result = backbonzo::restore(
             restore_path.clone(),
