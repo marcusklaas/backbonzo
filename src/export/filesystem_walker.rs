@@ -1,3 +1,5 @@
+extern crate filetime;
+
 use std::io;
 use std::path::{PathBuf, Path};
 use std::fs::{read_dir, PathExt};
@@ -6,6 +8,7 @@ use std::cmp::Ordering;
 use std::mem;
 
 use super::super::comm::spmc::bounded_fast as spmc;
+use self::filetime::FileTime;
 use super::super::iter_reduce::{Reduce, IteratorReduce};
 
 use super::super::database::Database;
@@ -209,8 +212,10 @@ pub fn newest_first_walker(dir: &Path, recursive: bool) -> io::Result<NewestFirs
 
     fn modified_date(path: &Path) -> io::Result<u64> {
         path.metadata()
-            .map(|stats| {
-                stats.modified()
+            .map(|meta| FileTime::from_last_modification_time(&meta))
+            .map(|filetime| {
+                let millis = filetime.nanoseconds() as u64/ 1_000_000;
+                1_000 * filetime.seconds_relative_to_1970() + millis
             })
     }
 
@@ -219,6 +224,7 @@ pub fn newest_first_walker(dir: &Path, recursive: bool) -> io::Result<NewestFirs
     
     let walker: io::Result<FilesystemWalker<u64>> = FilesystemWalker::<u64>::new(
         dir,
+        // FIXME: dirty, dirty hack to silence borrow checker
         unsafe { mem::copy_lifetime("silly", &*file_map) },
         unsafe { mem::copy_lifetime("wadda", &*sort_map) },
         recursive,
