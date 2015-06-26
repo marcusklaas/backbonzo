@@ -1,4 +1,4 @@
-#![feature(collections, path_ext)]
+#![feature(path_ext)]
 
 extern crate backbonzo;
 extern crate time;
@@ -237,7 +237,7 @@ fn backup_and_restore() {
         destination_path.clone(),
         &crypto_scheme,
         timestamp,
-        "**/welco*".to_owned()
+        "**/welco*"
     );
 
     assert!(restore_result.is_ok());
@@ -386,7 +386,7 @@ fn renames() {
             destination_path.clone(),
             &crypto_scheme,
             second_timestamp + 1,
-            String::from_str("**")
+            "**"
         );
 
         assert!(restore_result.is_ok());
@@ -414,7 +414,7 @@ fn renames() {
             destination_path.clone(),
             &crypto_scheme,
             third_timestamp + 1,
-            String::from_str("**")
+            "**"
         );
 
         assert!(restore_result.is_ok());
@@ -442,7 +442,7 @@ fn renames() {
             destination_path.clone(),
             &crypto_scheme,
             epoch_milliseconds(),
-            String::from_str("**")
+            "**"
         );
 
         assert!(restore_result.is_ok());
@@ -464,7 +464,7 @@ fn renames() {
             destination_path.clone(),
             &crypto_scheme,
             first_timestamp + 1,
-            String::from_str("**")
+            "**"
         );
 
         assert!(restore_result.is_ok());
@@ -492,7 +492,7 @@ fn renames() {
             destination_path.clone(),
             &crypto_scheme,
             5000,
-            String::from_str("**")
+            "**"
         );
 
         assert!(restore_result.is_ok());
