@@ -1,2 +1,14 @@
 language: rust
+
 rust: nightly
+
+before_install:
+  # The default version of sqlite on travis doesn't support certain pragmas.
+  - sudo apt-add-repository -y ppa:travis-ci/sqlite3
+  - sudo apt-get -y update
+  - sudo apt-get -y install sqlite3=3.7.15.1-1~travis1
+
+script:
+    - cargo build
+    - cargo test
+
