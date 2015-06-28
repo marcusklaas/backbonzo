@@ -1,5 +1,4 @@
-#![feature(libc, path_ext, plugin, duration, into_cow, vec_push_all,
-           copy_lifetime)]
+#![feature(libc, path_ext, plugin, duration, into_cow, vec_push_all)]
 
 extern crate rustc_serialize;
 extern crate time;
@@ -33,12 +32,13 @@ use summary::{RestorationSummary, BackupSummary, InitSummary};
 pub use error::{BonzoError, BonzoResult};
 pub use crypto::{CryptoScheme, AesEncrypter, hash_block};
 
+#[macro_use]
+mod error;
 mod database;
 mod crypto;
 mod export;
 mod summary;
 mod file_chunks;
-mod error;
 
 pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 
@@ -145,7 +145,7 @@ impl<C: CryptoScheme> BackupManager<C> {
     pub fn restore_file(&self, path: &Path, block_list: &[BlockId], summary: &mut RestorationSummary) -> BonzoResult<()> {
         try!(create_parent_dir(path));
 
-        let mut file = try!(File::create(path));
+        let mut file = try_io!(File::create(path), path);
 
         for block_id in block_list.iter() {
             let hash = try!(self.database.block_hash_from_id(*block_id));
@@ -158,10 +158,10 @@ impl<C: CryptoScheme> BackupManager<C> {
 
             summary.add_block(&bytes);
 
-            try!(file.write_all(&bytes));
+            try_io!(file.write_all(&bytes), path);
         }
 
-        try!(file.sync_all());
+        try_io!(file.sync_all(), path);
 
         summary.add_file();
 
@@ -259,7 +259,7 @@ impl<C: CryptoScheme> BackupManager<C> {
         for (id, hash) in unused_block_list {
             let path = block_output_path(&self.backup_path, &hash);
 
-            try!(remove_file(&path));
+            try_io!(remove_file(&path), path);
             try!(self.database.remove_block(id));
         }
 
@@ -277,7 +277,7 @@ impl<C: CryptoScheme> BackupManager<C> {
         try!(write_to_disk(&new_index, &procesed_bytes));
         try!(copy(&new_index, &index));
 
-        Ok(try!(remove_file(&new_index)))
+        Ok(try_io!(remove_file(&new_index), new_index))
     }
 }
 
@@ -304,7 +304,7 @@ pub fn init<C: CryptoScheme, P: AsRef<Path>>(source_path: &P,
 fn create_parent_dir(path: &Path) -> BonzoResult<()> {
     let parent = try!(path.parent().ok_or(BonzoError::from_str("Couldn't get parent directory")));
 
-    Ok(try!(create_dir_all(parent)))
+    Ok(try_io!(create_dir_all(parent), path))
 }
 
 // Takes a path, turns it into an absolute path if necessary

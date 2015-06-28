@@ -103,8 +103,6 @@ pub fn send_files(source_path: &Path, database: Database, mut channel: spmc::Pro
 // Walks the filesystem in an order that is defined by sort map, returning extra
 // information along with the paths. Is guaranteed to return directories before
 // their children
-
-// TODO: we should probably take ownership of file_map and sort_map
 pub struct FilesystemWalker<'a, T: 'static> {
     root: PathBuf,
     cur: Vec<(PathBuf, T)>,
@@ -115,17 +113,15 @@ pub struct FilesystemWalker<'a, T: 'static> {
 }
 
 impl<'a, T> Iterator for FilesystemWalker<'a, T> {
-    type Item = io::Result<(PathBuf, T)>;
+    type Item = BonzoResult<(PathBuf, T)>;
 
-    fn next(&mut self) -> Option<io::Result<(PathBuf, T)>> {
+    fn next(&mut self) -> Option<BonzoResult<(PathBuf, T)>> {
         self.cur.pop().map(|(path, extra)| {
             if self.recursive && path.is_dir() {
-                self.read_dir_sorted(&path)
-                    .map(|_| (path, extra))
+                try!(self.read_dir_sorted(&path));
             }
-            else {
-                Ok((path, extra))
-            }
+
+            Ok((path, extra))
         })
     }
 }
@@ -137,7 +133,7 @@ impl<'a, T> FilesystemWalker<'a, T> {
                      sort_map: &'a S,
                      recursive: bool,
                      follow_symlinks: bool)
-                     -> io::Result<FilesystemWalker<'a, T>>
+                     -> BonzoResult<FilesystemWalker<'a, T>>
                          where F: Fn(&Path) -> io::Result<T>,
                                S: Fn(&(PathBuf, T), &(PathBuf, T)) -> Ordering {
         let mut walker = FilesystemWalker {
@@ -164,16 +160,16 @@ impl<'a, T> FilesystemWalker<'a, T> {
         })
     }
     
-    fn read_dir_sorted(&mut self, dir: &Path) -> io::Result<()> {
+    fn read_dir_sorted(&mut self, dir: &Path) -> BonzoResult<()> {
         // add the paths and their associated values to the internal buffer
-        for entry in try!(read_dir(dir)) {
-            let path = try!(entry).path();
+        for entry in try_io!(read_dir(dir), dir) {
+            let path = try_io!(entry, dir).path();
 
-            if ! try!(self.is_accepted_path(&path)) {
+            if ! try_io!(self.is_accepted_path(&path), path) {
                 continue;
             }
 
-            let extra = try!((*self.file_map)(&path));
+            let extra = try_io!((*self.file_map)(&path), path);
             let pair = (path.to_owned(), extra);
             self.cur.push(pair);
         }
@@ -184,58 +180,28 @@ impl<'a, T> FilesystemWalker<'a, T> {
     }
 }
 
-// The idea here is that we serve the most recently changed files first
-// because those are likely to be the most relevant.
-pub struct NewestFirst<'a> {
-    walker: FilesystemWalker<'a, u64>,
-    #[allow(dead_code)]
-    file_map: Box<Fn(&Path) -> io::Result<u64>>,
-    #[allow(dead_code)]
-    sort_map: Box<Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering>
+// Ick, just needed to get a &'static to newest_first and modified_date.
+static SORT_MAP: &'static Fn(&(PathBuf, u64), &(PathBuf, u64)) -> Ordering = &newest_first;
+static FILE_MAP: &'static Fn(&Path) -> io::Result<u64> = &modified_date;
+
+fn newest_first(a: &(PathBuf, u64), b: &(PathBuf, u64)) -> Ordering {
+    let &(_, time_a) = a;
+    let &(_, time_b) = b;
+
+    time_a.cmp(&time_b) 
 }
 
-impl<'a> Iterator for NewestFirst<'a> {
-    type Item = io::Result<(PathBuf, u64)>;
-    
-    fn next(&mut self) -> Option<io::Result<(PathBuf, u64)>> {
-        self.walker.next()
-    }
+fn modified_date(path: &Path) -> io::Result<u64> {
+    path.metadata()
+        .map(|meta| FileTime::from_last_modification_time(&meta))
+        .map(|filetime| {
+            let millis = filetime.nanoseconds() as u64/ 1_000_000;
+            1_000 * filetime.seconds_relative_to_1970() + millis
+        })
 }
 
-pub fn newest_first_walker(dir: &Path, recursive: bool) -> io::Result<NewestFirst<'static>> {
-    fn newest_first(a: &(PathBuf, u64), b: &(PathBuf, u64)) -> Ordering {
-        let &(_, time_a) = a;
-        let &(_, time_b) = b;
-
-        time_a.cmp(&time_b) 
-    }        
-
-    fn modified_date(path: &Path) -> io::Result<u64> {
-        path.metadata()
-            .map(|meta| FileTime::from_last_modification_time(&meta))
-            .map(|filetime| {
-                let millis = filetime.nanoseconds() as u64/ 1_000_000;
-                1_000 * filetime.seconds_relative_to_1970() + millis
-            })
-    }
-
-    let file_map = Box::new(modified_date);
-    let sort_map = Box::new(newest_first);
-    
-    let walker: io::Result<FilesystemWalker<u64>> = FilesystemWalker::<u64>::new(
-        dir,
-        // FIXME: dirty, dirty hack to silence borrow checker
-        unsafe { mem::copy_lifetime("silly", &*file_map) },
-        unsafe { mem::copy_lifetime("wadda", &*sort_map) },
-        recursive,
-        false
-    );
-
-    Ok(NewestFirst {
-        walker: try!(walker),
-        file_map: file_map,
-        sort_map: sort_map
-    })
+pub fn newest_first_walker(dir: &Path, recursive: bool) -> BonzoResult<FilesystemWalker<'static, u64>> {
+    FilesystemWalker::<u64>::new(dir, &FILE_MAP, &SORT_MAP, recursive, false)
 }
 
 #[cfg(test)]

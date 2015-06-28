@@ -96,18 +96,18 @@ impl<'sender, C: CryptoScheme> ExportBlockSender<'sender, C> {
             return Ok(());
         }
         
-        let hash = try!(crypto::hash_file(path));
+        let hash = try_io!(crypto::hash_file(path), path);
 
         if let Some(file_id) = try!(self.database.file_from_hash(&hash)) {
             return Ok(try!(self.database.persist_alias(directory, Some(file_id), &filename, Some(last_modified))));
         }
         
-        let mut chunks = try!(file_chunks(path, self.block_size));
+        let mut chunks = try_io!(file_chunks(path, self.block_size), path);
         let mut block_reference_list = Vec::new();
 
         // TODO: we can make this into a map, just have to implement it on chunks
         while let Some(slice) = chunks.next() {
-            let unwrapped_slice = try!(slice);
+            let unwrapped_slice = try_io!(slice, path);
             let block_reference = try!(self.export_block(unwrapped_slice));
             
             block_reference_list.push(block_reference);

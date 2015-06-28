@@ -66,6 +66,7 @@ impl RestorationSummary {
     }
 }
 
+// FIXME: this is an anti-pattern in Rust
 impl Deref for RestorationSummary {
     type Target = Summary;
 
