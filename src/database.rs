@@ -256,12 +256,12 @@ impl Database {
 
         let mut buffer = Vec::new();
 
-        try!(
+        try_io!(
             File::open(&self.path)
             .and_then(|mut file| {
                 file.read_to_end(&mut buffer)
             })
-         );
+        , &self.path);
 
         Ok(buffer)
     }
