@@ -56,21 +56,29 @@ fn cleanup_regression_test() {
         deadline
     ).ok().expect("First backup failed");
 
-    // sleep for a bit
-    sleep_ms(100);
+    // save timestamp
+    let timestamp = epoch_milliseconds();
+    sleep_ms(1000);
 
     // delete file
     remove_file(&file_path).ok().expect("Couldn't remove file");
     assert!(file_path.exists() == false);
 
     // delete backup
-    for p in read_dir(destination_path).unwrap() {
+    // FIXME: this makes too many assumptions on the structure of the backup
+    let mut deletion_counter = 0;
+    for p in read_dir(destination_path.clone()).unwrap() {
         let path = p.unwrap().path();
 
-        if path.is_file() {
-            remove_file(path).unwrap();
+        if path.is_dir() {
+            for q in read_dir(path).unwrap() {
+                remove_file(q.unwrap().path()).unwrap();
+                deletion_counter += 1;
+            }
         }
     }
+
+    assert!(deletion_counter >= 1);
 
     // rerun backup with very strict max_age parameter
     backbonzo::backup(

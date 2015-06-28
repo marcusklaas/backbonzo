@@ -248,6 +248,7 @@ impl<C: CryptoScheme> BackupManager<C> {
         };
 
         try!(self.database.remove_old_aliases(timestamp));
+
         try!(self.database.remove_unused_files());
 
         self.clean_unused_blocks()
