@@ -12,7 +12,7 @@ extern crate tempdir;
 #[cfg(test)]
 extern crate regex;
 
-use std::io::{self, Read, Write, BufReader};
+use std::io::{self, Read, Write, BufReader, ErrorKind};
 use std::fs::{remove_file, copy, File, create_dir_all};
 use std::path::{PathBuf, Path};
 use std::env::current_dir;
@@ -40,6 +40,7 @@ mod export;
 mod summary;
 mod file_chunks;
 
+// TODO: Move this constant to main.rs 
 pub static DATABASE_FILENAME: &'static str = ".backbonzo.db3";
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -247,7 +248,6 @@ impl<C: CryptoScheme> BackupManager<C> {
         };
 
         try!(self.database.remove_old_aliases(timestamp));
-
         try!(self.database.remove_unused_files());
 
         self.clean_unused_blocks()
@@ -259,7 +259,15 @@ impl<C: CryptoScheme> BackupManager<C> {
         for (id, hash) in unused_block_list {
             let path = block_output_path(&self.backup_path, &hash);
 
-            try_io!(remove_file(&path), path);
+            // Do not err when the file was already removed. We may need to
+            // revisit this decision later as it is indicative of potential
+            // issues.
+            if let Err(e) = remove_file(&path) {
+                if ErrorKind::NotFound != e.kind() {
+                    return Err(BonzoError::Io(e, Some(From::from(path))));
+                }
+            }
+
             try!(self.database.remove_block(id));
         }
 
@@ -274,8 +282,8 @@ impl<C: CryptoScheme> BackupManager<C> {
         let new_index = self.backup_path.join("index-new");
         let index = self.backup_path.join("index");
 
-        try!(write_to_disk(&new_index, &procesed_bytes));
-        try!(copy(&new_index, &index));
+        try_io!(write_to_disk(&new_index, &procesed_bytes), &new_index);
+        try_io!(copy(&new_index, &index), &new_index);
 
         Ok(try_io!(remove_file(&new_index), new_index))
     }
@@ -370,7 +378,7 @@ fn decrypt_index<C: CryptoScheme>(backup_path: &Path, temp_dir: &Path, crypto_sc
     let decrypted_index_path = temp_dir.join(DATABASE_FILENAME);
     let bytes = try!(load_processed_block(&backup_path.join("index"), crypto_scheme));
 
-    try!(write_to_disk(&decrypted_index_path, &bytes));
+    try_io!(write_to_disk(&decrypted_index_path, &bytes), &decrypted_index_path);
 
     Ok(decrypted_index_path)
 }

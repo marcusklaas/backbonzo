@@ -6,7 +6,7 @@ extern crate tempdir;
 
 use backbonzo::{AesEncrypter, BonzoError};
 use std::io::{Read, Write, self};
-use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions};
+use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions, read_dir};
 use time::{Duration, get_time};
 use tempdir::TempDir;
 use std::convert::AsRef;
@@ -14,8 +14,72 @@ use std::borrow::ToOwned;
 use std::path::Path;
 use std::thread::sleep_ms;
 
+// FIXME: loads of code duplication here. Clean it up!
+
 fn open_read_write<P: AsRef<Path>>(path: &P) -> io::Result<File> {
     OpenOptions::new().read(true).write(true).append(false).open(path)
+}
+
+// Regression test for the bug where backbonzo would err when it tried to remove
+// a file during clean up which was already deleted earlier.
+#[test]
+fn cleanup_regression_test() {
+    let source_temp = TempDir::new("cleanup-source").unwrap();
+    let destination_temp = TempDir::new("cleanup-dest").unwrap();
+    let source_path = source_temp.path().to_owned();
+    let destination_path = destination_temp.path().to_owned();
+    let crypto_scheme = AesEncrypter::new("testpassword");
+    let deadline = time::now() + Duration::minutes(1);
+
+    let init_result = backbonzo::init(
+        &source_path,
+        &destination_path,
+        &crypto_scheme
+    );
+
+    assert!(init_result.is_ok());
+
+    // write initial file
+    let file_path = source_path.join("file1");
+    {
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(b"first edition!").ok().expect("Failed writing to file.");
+        assert!(file.sync_all().is_ok());
+    }
+
+    // run backup of file
+    backbonzo::backup(
+        source_path.clone(),
+        1000000,
+        &crypto_scheme,
+        0,
+        deadline
+    ).ok().expect("First backup failed");
+
+    // sleep for a bit
+    sleep_ms(100);
+
+    // delete file
+    remove_file(&file_path).ok().expect("Couldn't remove file");
+    assert!(file_path.exists() == false);
+
+    // delete backup
+    for p in read_dir(destination_path).unwrap() {
+        let path = p.unwrap().path();
+
+        if path.is_file() {
+            remove_file(path).unwrap();
+        }
+    }
+
+    // rerun backup with very strict max_age parameter
+    backbonzo::backup(
+        source_path.clone(),
+        1000000,
+        &crypto_scheme,
+        1,
+        deadline
+    ).unwrap();
 }
 
 #[test]
