@@ -2,6 +2,11 @@
 name = "backbonzo"
 version = "0.5.1"
 authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
+description = "Safe and convenient backup manager"
+repository = "https://github.com/marcusklaas/backbonzo"
+readme = "readme.md"
+keywords = ["aes", "backup", "dedup"]
+license = "MIT"
 
 [lib]
 name = "backbonzo"
@@ -19,15 +24,9 @@ tempdir = "*"
 time = "*"
 termios = "*"
 filetime = "*"
-
-[dependencies.bzip2]
-git = "https://github.com/alexcrichton/bzip2-rs.git"
-
-[dependencies.number_prefix]
-git = "https://github.com/ogham/rust-number-prefix.git"
-
-[dependencies.comm]
-git = "https://github.com/mahkoh/comm"
+bzip2 = "*"
+number_prefix = "*"
+comm = "*"
 
 [dependencies.iter-reduce]
 git = "https://github.com/marcusklaas/iter-reduce"
@@ -41,4 +40,3 @@ opt-level = 2
 debug = false
 rpath = false
 lto = false
-

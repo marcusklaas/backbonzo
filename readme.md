@@ -17,17 +17,38 @@ backbonzo is be a backup management tool written in Rust. It aims to
 installation
 ------------
 
-* install [rustc, cargo](http://www.rust-lang.org/install.html) and the sqlite development headers
+* install [rustc, cargo](http://www.rust-lang.org/install.html) *from the nightly channel* and the sqlite development headers
 * `$ git clone https://github.com/marcusklaas/backbonzo.git`
 * `$ cd backbonzo`
 * `$ cargo build --release`
 * `$ sudo cp target/release/backbonzo /usr/local/bin/backbonzo`
 
-Note: backbonzo relies on [the comm crate](http://www.github.com/mahkoh/comm). Since this crate is not rust 1.0-beta compatible, neither is backbonzo. This will hopefully change before rust 1.0 final.
+Note: backbonzo relies on [the comm crate](http://www.github.com/mahkoh/comm). Since this crate relies on unstable language features, we require the rust compiler from the nightly channel. 
 
 usage
 -----
-There are three modes of operation: init, backup and restore. The init operation creates a hidden file in the source directory containing meta data. This file keeps track of the state of your backup. TBC
+There are three modes of operation: init, backup and restore. The init operation creates a hidden file in the source directory containing meta data. This file keeps track of the state of your backup. To set up a backup from `/home/user/important/` to `/var/backup/important`, run the following command:
+```bash
+$ backbonzo -s /home/user/important/ -d /var/backup/important
+```
+It will ask you for a passphrase which backbonzo will use to check that every backup is made with the same key. This passphrase is stored in a hashed form in the index file. Note that when the `-s` option is ommited, backbonzo will assume that the current working directory is meant.
+
+After we've initialized our source directory, we can start backing up by executing
+```bash
+$ backbonzo -s /home/user/important/
+```
+It will remember the destination we gave it earlier. This command will also remove backups of old versions files that are no longer used. There are a few relevant options for the backup command. The most important ones are `--timeout` (or `-T` for short) and `--age` (`-a`
+for short). The former makes backbonzo exit shortly after a specified number of seconds. After the timeout, backbonzo will only finish its current transfer and update the index file. The `--age` option specifies how long an old version of a file must have been overwritten before its backup is removed. The default value is 183, or half a year. This means that you can always revert your backed up directory to any previous state up to half a year ago.
+
+To restore a backup, there's the `restore` subcommand. Its only required option is the location of the backup. Other relevant options are `--timestamp`/`-t` and `--filter`/ `-f`. The timestamp option specifies the point in time to in *milliseconds after the [UNIX epoch](https://en.wikipedia.org/wiki/Unix_time)*. The filter option is a [glob filter](https://en.wikipedia.org/wiki/Glob_%28programming%29) on the filenames to restore. For example, to restore the backup of the images subdirectory as of its state on June 29th, 2015 into the current directory, the following command is appropriate:
+```bash
+$ backbonzo -d /var/backup/important --timestamp=1435608987000 --filter=images/**
+```
+
+For a list of subcommands and options, run
+```bash
+$ backbonzo --help
+```
 
 security concerns
 -----------------
@@ -39,14 +60,7 @@ backbonzo implements compression on a per-block basis. This means that before th
 
 What's worse is that the encrypted index file (metadata) is copied along with the actual data. An attacker could fairly easily use the size of this file to gain extra information. The way the index file is populated is very structured and predictable. The size of the index file could be combined with knowledge of the number of files to construct estimators for the number of directories, for example.
 
-priority todo list
-------------------
+license
+-------
 
-- [ ] write some documentation on how to use backbonzo
-- [x] add clean up command
-- [x] process file blocks in parallel
-
-legal
------
-
-Licensed under MIT. Project name courtesy of [foswig.js](http://mrsharpoblunto.github.io/foswig.js/).
+MIT.
