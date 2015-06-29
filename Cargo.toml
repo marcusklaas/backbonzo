@@ -26,7 +26,9 @@ termios = "*"
 filetime = "*"
 bzip2 = "*"
 number_prefix = "*"
-comm = "*"
+
+[dependencies.comm]
+git = "https://github.com/mahkoh/comm"
 
 [dependencies.iter-reduce]
 git = "https://github.com/marcusklaas/iter-reduce"
