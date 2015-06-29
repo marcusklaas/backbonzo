@@ -29,20 +29,20 @@ usage
 -----
 There are three modes of operation: init, backup and restore. The init operation creates a hidden file in the source directory containing meta data. This file keeps track of the state of your backup. To set up a backup from `/home/user/important/` to `/var/backup/important`, run the following command:
 ```bash
-$ backbonzo -s /home/user/important/ -d /var/backup/important
+$ backbonzo init -s /home/user/important/ -d /var/backup/important
 ```
 It will ask you for a passphrase which backbonzo will use to check that every backup is made with the same key. This passphrase is stored in a hashed form in the index file. Note that when the `-s` option is ommited, backbonzo will assume that the current working directory is meant.
 
 After we've initialized our source directory, we can start backing up by executing
 ```bash
-$ backbonzo -s /home/user/important/
+$ backbonzo backup -s /home/user/important/
 ```
 It will remember the destination we gave it earlier. This command will also remove backups of old versions files that are no longer used. There are a few relevant options for the backup command. The most important ones are `--timeout` (or `-T` for short) and `--age` (`-a`
 for short). The former makes backbonzo exit shortly after a specified number of seconds. After the timeout, backbonzo will only finish its current transfer and update the index file. The `--age` option specifies how long an old version of a file must have been overwritten before its backup is removed. The default value is 183, or half a year. This means that you can always revert your backed up directory to any previous state up to half a year ago.
 
 To restore a backup, there's the `restore` subcommand. Its only required option is the location of the backup. Other relevant options are `--timestamp`/`-t` and `--filter`/ `-f`. The timestamp option specifies the point in time to in *milliseconds after the [UNIX epoch](https://en.wikipedia.org/wiki/Unix_time)*. The filter option is a [glob filter](https://en.wikipedia.org/wiki/Glob_%28programming%29) on the filenames to restore. For example, to restore the backup of the images subdirectory as of its state on June 29th, 2015 into the current directory, the following command is appropriate:
 ```bash
-$ backbonzo -d /var/backup/important --timestamp=1435608987000 --filter=images/**
+$ backbonzo restore -d /var/backup/important --timestamp=1435608987000 --filter=images/**
 ```
 
 For a list of subcommands and options, run
