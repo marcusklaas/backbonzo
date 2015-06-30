@@ -1,3 +1,5 @@
+extern crate num_cpus;
+
 use std::io::Read;
 use std::path::Path;
 use std::thread::spawn;
@@ -26,7 +28,6 @@ mod filesystem_walker;
 // increases the likelihood of buffer underruns, especially when a sequence of
 // small files is being processed.
 static CHANNEL_BUFFER_SIZE: usize = 16;
-static EXPORT_THREAD_COUNT: usize = 4;
 
 // Specification of messsages sent over the channel
 pub enum FileInstruction {
@@ -169,7 +170,7 @@ pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypt
     });
 
     // spawn encoder threads
-    for _ in 0..EXPORT_THREAD_COUNT {
+    for _ in 0..self::num_cpus::get() {
         let mut transmitter = block_transmitter.clone();
         let new_database = try!(database.try_clone());
         let receiver = path_receiver.clone();

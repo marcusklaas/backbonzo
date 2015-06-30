@@ -26,6 +26,7 @@ termios = "*"
 filetime = "*"
 bzip2 = "*"
 number_prefix = "*"
+num_cpus = "*"
 
 [dependencies.comm]
 git = "https://github.com/mahkoh/comm"
