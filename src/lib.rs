@@ -1,4 +1,4 @@
-#![feature(libc, path_ext, plugin, duration, into_cow, vec_push_all)]
+#![feature(libc, path_ext, plugin, duration, into_cow, vec_push_all, fs_time)]
 
 extern crate rustc_serialize;
 extern crate time;
@@ -13,7 +13,7 @@ extern crate tempdir;
 extern crate regex;
 
 use std::io::{self, Read, Write, BufReader, ErrorKind};
-use std::fs::{remove_file, copy, File, create_dir_all};
+use std::fs::{remove_file, copy, File, create_dir_all, set_file_times};
 use std::path::{PathBuf, Path};
 use std::env::current_dir;
 use std::convert::{From, AsRef};
@@ -413,7 +413,9 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = try!(File::create(path));
 
     try!(file.write_all(bytes));
-    file.sync_all()
+    try!(file.sync_all());
+
+    set_file_times(path, 0, 0)
 }
 
 #[cfg(test)]
