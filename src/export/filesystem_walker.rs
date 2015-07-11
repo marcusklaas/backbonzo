@@ -207,10 +207,18 @@ pub fn newest_first_walker(dir: &Path, recursive: bool) -> BonzoResult<Filesyste
 #[cfg(test)]
 mod test {
     use std::thread::sleep_ms;
-    use std::fs::create_dir_all;
+    use std::io::{self, Write};
+    use std::path::Path;
+    use std::fs::{File, create_dir_all};
 
     use super::super::super::tempdir::TempDir;
-    use super::super::super::write_to_disk;
+
+    fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut file = try!(File::create(path));
+
+        try!(file.write_all(bytes));
+        file.sync_all()
+    }
 
     #[test]
     fn read_dir() {
