@@ -428,8 +428,7 @@ impl Database {
         .map_err(From::from)
     }
 
-    // TODO: return number of deleted rows?
-    pub fn remove_old_aliases(&self, timestamp: u64) -> DatabaseResult<()> {
+    pub fn remove_old_aliases(&self, timestamp: u64) -> DatabaseResult<u64> {
         self.connection.execute(
             "DELETE FROM alias
               WHERE timestamp < $1
@@ -440,11 +439,10 @@ impl Database {
                );",
             &[&(timestamp as i64)]
         )
-        .map(|_| ())
+        .map(|rows_deleted| rows_deleted as u64)
         .map_err(From::from)
     }
 
-    // TODO: return number of deleted rows?
     pub fn remove_unused_files(&self) -> DatabaseResult<()> {
         self.connection.execute(
             "DELETE FROM fileblock
