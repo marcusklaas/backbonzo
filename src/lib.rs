@@ -12,8 +12,8 @@ extern crate tempdir;
 #[cfg(test)]
 extern crate regex;
 
-use std::io::{self, Read, Write, BufReader, ErrorKind};
-use std::fs::{remove_file, copy, File, create_dir_all, set_file_times};
+use std::io::{self, Read, Write, BufReader};
+use std::fs::{remove_file, copy, File, create_dir_all, set_file_times, metadata, PathExt};
 use std::path::{PathBuf, Path};
 use std::env::current_dir;
 use std::convert::{From, AsRef};
@@ -27,7 +27,7 @@ use time::get_time;
 
 use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
-use summary::{RestorationSummary, BackupSummary, InitSummary};
+use summary::{RestorationSummary, BackupSummary, InitSummary, CleanupSummary};
 
 pub use error::{BonzoError, BonzoResult};
 pub use crypto::{CryptoScheme, AesEncrypter, hash_block};
@@ -239,7 +239,7 @@ impl<C: CryptoScheme> BackupManager<C> {
     }
 
     // Remove old aliases and unused blocks from database and disk
-    fn cleanup(&self, max_age_milliseconds: u64) -> BonzoResult<()> {
+    fn cleanup(&self, max_age_milliseconds: u64) -> BonzoResult<CleanupSummary> {
         let now = epoch_milliseconds();
 
         let timestamp = match now < max_age_milliseconds {
@@ -247,15 +247,20 @@ impl<C: CryptoScheme> BackupManager<C> {
             false => now - max_age_milliseconds
         };
 
-        try!(self.database.remove_old_aliases(timestamp));
-
+        let aliases = try!(self.database.remove_old_aliases(timestamp));
         try!(self.database.remove_unused_files());
+        let (blocks, bytes) = try!(self.clean_unused_blocks());
 
-        self.clean_unused_blocks()
+        Ok(CleanupSummary { aliases: aliases,
+                            blocks: blocks,
+                            bytes: bytes, })
     }
 
-    fn clean_unused_blocks(&self) -> BonzoResult<()> {
+    // Returns the number of unused blocks and the total number of bytes within.
+    fn clean_unused_blocks(&self) -> BonzoResult<(u64, u64)> {
         let unused_block_list = try!(self.database.get_unused_blocks());
+        let block_count = unused_block_list.len();
+        let mut bytes = 0;
 
         for (id, hash) in unused_block_list {
             let path = block_output_path(&self.backup_path, &hash);
@@ -263,16 +268,16 @@ impl<C: CryptoScheme> BackupManager<C> {
             // Do not err when the file was already removed. We may need to
             // revisit this decision later as it is indicative of potential
             // issues.
-            if let Err(e) = remove_file(&path) {
-                if ErrorKind::NotFound != e.kind() {
-                    return Err(BonzoError::Io(e, Some(From::from(path))));
-                }
+            if !path.exists() {
+                continue;
             }
 
+            bytes += try_io!(metadata(&path), &path).len();
+            try_io!(remove_file(&path), &path);
             try!(self.database.remove_block(id));
         }
 
-        Ok(())
+        Ok((block_count as u64, bytes))
     }
 
     // Closes the database connection and saves it to the backup destination in
@@ -343,10 +348,11 @@ pub fn backup<'p, C: CryptoScheme, SP: IntoCow<'p, Path>>(
     let database_path = source_cow.join(DATABASE_FILENAME);
     let database = try!(Database::from_file(database_path));
     let mut manager = try!(BackupManager::new(database, source_cow.into_owned(), crypto_scheme));
-    let summary = try!(manager.update(block_bytes, deadline));
+    let mut summary = try!(manager.update(block_bytes, deadline));
 
     if ! summary.timeout {
-        try!(manager.cleanup(max_age_milliseconds));
+        let cleanup_summary = try!(manager.cleanup(max_age_milliseconds));
+        summary.add_cleanup_summary(cleanup_summary);
     }
     
     try!(manager.export_index());

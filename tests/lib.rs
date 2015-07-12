@@ -57,7 +57,6 @@ fn cleanup_regression_test() {
     ).ok().expect("First backup failed");
 
     // save timestamp
-    let timestamp = epoch_milliseconds();
     sleep_ms(1000);
 
     // delete file
@@ -81,13 +80,20 @@ fn cleanup_regression_test() {
     assert!(deletion_counter >= 1);
 
     // rerun backup with very strict max_age parameter
-    backbonzo::backup(
+    let summary = backbonzo::backup(
         source_path.clone(),
         1000000,
         &crypto_scheme,
         1,
         deadline
     ).unwrap();
+
+    let cleanup_summary = &summary.cleanup.unwrap();
+
+    // Backup also makes a new null alias, which may or may not be deleted.
+    assert!(cleanup_summary.aliases >= 1 && cleanup_summary.aliases <= 2);
+    assert!(cleanup_summary.blocks == 1);
+    assert!(cleanup_summary.bytes == 0);
 }
 
 #[test]

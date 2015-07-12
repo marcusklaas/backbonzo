@@ -12,7 +12,7 @@ use docopt::Docopt;
 use std::path::PathBuf;
 use std::error::Error;
 use time::Duration;
-use std::fmt::Debug;
+use std::fmt::Display;
 use std::io::{Write, stderr, stdout, stdin};
 use backbonzo::{init, backup, restore, epoch_milliseconds, BonzoResult, AesEncrypter};
 
@@ -109,9 +109,9 @@ fn main() {
 
 // Writes the result of the program to stdio in case of success, or stderr when
 // it failed
-fn handle_result<T: Debug>(result: BonzoResult<T>) {
+fn handle_result<T: Display>(result: BonzoResult<T>) {
     match result {
-        Ok(summary) => println!("{:?}", summary),
+        Ok(summary) => println!("{}", summary),
         Err(ref e)  => { let _ = writeln!(&mut stderr(), "{:?}", e); }
     }
 }
