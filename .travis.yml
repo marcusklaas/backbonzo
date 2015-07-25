@@ -9,6 +9,6 @@ before_install:
   - sudo apt-get -y install sqlite3=3.7.15.1-1~travis1
 
 script:
-    - cargo build
     - cargo test
+    - cargo test --release
 
