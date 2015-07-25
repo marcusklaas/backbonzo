@@ -154,7 +154,8 @@ impl<C: CryptoScheme> BackupManager<C> {
             let bytes = try!(load_processed_block(&block_path, &*self.crypto_scheme));
 
             if hash_block(&bytes) != hash {
-                return Err(BonzoError::from_str("Block integrity check failed"));
+                //return Err(BonzoError::from_str("Block integrity check failed"));
+                println!("block integrity check failed for path: {:?}", path);
             }
 
             summary.add_block(&bytes);
@@ -403,7 +404,11 @@ fn load_processed_block<C: CryptoScheme>(path: &Path, crypto_scheme: &C) -> Bonz
     let mut decompressor = BzDecompressor::new(BufReader::new(&decrypted_bytes[..]));
     
     let mut buffer = Vec::new();
-    try!(decompressor.read_to_end(&mut buffer));
+
+    if let Err(..) = decompressor.read_to_end(&mut buffer) {
+        println!("failed decompressing {:?}", path);
+    }
+    
     Ok(buffer)
 }
 
