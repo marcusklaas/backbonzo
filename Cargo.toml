@@ -16,7 +16,6 @@ glob = "*"
 rustc-serialize = "*"
 rusqlite = "*"
 libsqlite3-sys = "*"
-rust-crypto = "*"
 rand = "*"
 regex = "*"
 docopt = "*"
@@ -27,6 +26,10 @@ filetime = "*"
 bzip2 = "*"
 number_prefix = "*"
 num_cpus = "*"
+
+[dependencies.rust-crypto]
+git = "https://github.com/andreasots/rust-crypto"
+commit = "65723b4c5a1cd829dd28"
 
 [dependencies.comm]
 git = "https://github.com/mahkoh/comm"
