@@ -312,7 +312,7 @@ impl Database {
         .map_err(From::from)
     }
 
-    pub fn persist_file(&self, directory: Directory, filename: &str, hash: &str, last_modified: u64, block_id_list: &[BlockId]) -> DatabaseResult<()> {
+    pub fn persist_file(&self, directory: Directory, filename: &str, hash: &[u8], last_modified: u64, block_id_list: &[BlockId]) -> DatabaseResult<()> {
         let transaction = try!(self.connection.transaction());
 
         try!(self.connection.execute("INSERT INTO file (hash) VALUES ($1);", &[&hash]));
@@ -349,7 +349,7 @@ impl Database {
             .map_err(From::from)
     }
 
-    pub fn persist_block(&self, hash: &str) -> DatabaseResult<BlockId> {
+    pub fn persist_block(&self, hash: &[u8]) -> DatabaseResult<BlockId> {
         try!(self.connection.execute(
             "INSERT INTO block (hash) VALUES ($1);",
             &[&hash]
@@ -358,7 +358,7 @@ impl Database {
         Ok(BlockId(self.connection.last_insert_rowid() as u64))
     }
 
-    pub fn file_from_hash(&self, hash: &str) -> DatabaseResult<Option<FileId>> {
+    pub fn file_from_hash(&self, hash: &[u8]) -> DatabaseResult<Option<FileId>> {
         self.connection.query_row_safe(
             "SELECT SUM(id) FROM file WHERE hash = $1;",
             &[&hash],
@@ -378,16 +378,16 @@ impl Database {
         .map_err(From::from)
     }
 
-    pub fn block_hash_from_id(&self, id: BlockId) -> DatabaseResult<String> {
+    pub fn block_hash_from_id(&self, id: BlockId) -> DatabaseResult<Vec<u8>> {
         self.connection.query_row_safe(
             "SELECT hash FROM block WHERE id = $1;",
             &[&id],
-            |row| row.get::<String>(0)
+            |row| row.get(0)
         )
         .map_err(From::from)
     }
 
-    pub fn block_id_from_hash(&self, hash: &str) -> DatabaseResult<Option<BlockId>> {
+    pub fn block_id_from_hash(&self, hash: &[u8]) -> DatabaseResult<Option<BlockId>> {
         self.connection.query_row_safe(
             "SELECT SUM(id) FROM block WHERE hash = $1;",
             &[&hash],
@@ -460,7 +460,7 @@ impl Database {
         .map_err(From::from)
     }
 
-    pub fn get_unused_blocks(&self) -> DatabaseResult<Vec<(BlockId, String)>> {
+    pub fn get_unused_blocks(&self) -> DatabaseResult<Vec<(BlockId, Vec<u8>)>> {
         self.query_and_collect(
             "SELECT id, hash FROM block
              WHERE id not in (SELECT id FROM fileblock);",
@@ -490,7 +490,7 @@ impl Database {
             "INSERT INTO directory (id, name) VALUES (0, \".\");",
             "CREATE TABLE file (
                 id           INTEGER PRIMARY KEY,
-                hash         TEXT NOT NULL,
+                hash         BLOB NOT NULL,
                 UNIQUE(hash)
             );",
             "CREATE INDEX file_hash_index ON file (hash)",
@@ -507,7 +507,7 @@ impl Database {
             "CREATE INDEX alias_directory_index ON alias (directory_id)",
             "CREATE TABLE block (
                 id           INTEGER PRIMARY KEY,
-                hash         TEXT NOT NULL,
+                hash         BLOB NOT NULL,
                 UNIQUE(hash)
             );",
             "CREATE INDEX block_hash_index ON block (hash)",

@@ -24,6 +24,7 @@ use bzip2::reader::BzDecompressor;
 use glob::Pattern;
 use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
+use rustc_serialize::hex::ToHex;
 
 use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
@@ -206,8 +207,8 @@ impl<C: CryptoScheme> BackupManager<C> {
             .map(|reference| match *reference {
                 BlockReference::ById(id)         => Ok(id),
                 BlockReference::ByHash(ref hash) => {
-                    let id_option = try!(self.database.block_id_from_hash(&hash));
-                    id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {}", hash)))
+                    let id_option = try!(self.database.block_id_from_hash(hash));
+                    id_option.ok_or(BonzoError::Other(format!("Could not find block with hash {:?}", hash)))
                 }
             })
             .collect()
@@ -407,10 +408,11 @@ fn load_processed_block<C: CryptoScheme>(path: &Path, crypto_scheme: &C) -> Bonz
     Ok(buffer)
 }
 
-fn block_output_path(base_path: &Path, hash: &str) -> PathBuf {
-    let mut path = base_path.join(&hash[0..2]);
+fn block_output_path(base_path: &Path, hash: &[u8]) -> PathBuf {
+    let hex = hash.to_hex();
+    let mut path = base_path.join(&hex[0..2]);
 
-    path.push(hash);
+    path.push(hex);
 
     path
 }

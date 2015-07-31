@@ -41,14 +41,14 @@ pub enum FileInstruction {
 // to the index
 pub struct FileBlock {
     pub bytes: Vec<u8>,
-    pub hash: String,
+    pub hash: Vec<u8>,
     pub source_byte_count: u64
 }
 
 #[derive(Debug)]
 pub enum BlockReference {
     ById(BlockId),
-    ByHash(String)
+    ByHash(Vec<u8>)
 }
 
 // This is sent *after* all the blocks of a file have been transferred. It is
@@ -56,7 +56,7 @@ pub enum BlockReference {
 #[derive(Debug)]
 pub struct FileComplete {
     pub filename: String,
-    pub hash: String,
+    pub hash: Vec<u8>,
     pub last_modified: u64,
     pub directory: Directory,
     pub block_reference_list: Vec<BlockReference>
@@ -139,7 +139,7 @@ impl<'sender, C: CryptoScheme> ExportBlockSender<'sender, C> {
 
         try!(self.sender.send_sync(FileInstruction::NewBlock(FileBlock {
             bytes: processed_bytes,
-            hash: hash.clone(),
+            hash: hash.clone(), // FIXME: is this clone necessary?
             source_byte_count: block.len() as u64
         })).map_err(|_| BonzoError::from_str("Failed sending block")));
 

@@ -118,39 +118,40 @@ impl CryptoScheme for AesEncrypter {
 }
 
 pub trait HashScheme {
-    fn hash_block(&self, block: &[u8]) -> String;
+    fn hash_block(&self, block: &[u8]) -> Vec<u8>;
 
-    fn hash_file(&self, path: &Path) -> io::Result<String>;
+    fn hash_file(&self, path: &Path) -> io::Result<Vec<u8>>;
 }
 
-pub struct Sha256Hasher;
+// pub struct Sha256Hasher;
 
-impl HashScheme for Sha256Hasher {
-    fn hash_file(&self, path: &Path) -> io::Result<String> {
-        let mut chunks = try!(file_chunks(path, 1024));
-        let mut hasher = Sha256::new();
+// impl HashScheme for Sha256Hasher {
+//     fn hash_file(&self, path: &Path) -> io::Result<Vec<u8>> {
+//         let mut chunks = try!(file_chunks(path, 1024));
+//         let mut hasher = Sha256::new();
         
-        while let Some(slice) = chunks.next() {
-            let unwrapped_slice = try!(slice);
+//         while let Some(slice) = chunks.next() {
+//             let unwrapped_slice = try!(slice);
             
-            hasher.input(unwrapped_slice);
-        }
+//             hasher.input(unwrapped_slice);
+//         }
         
-        Ok(hasher.result_str())
-    }
+//         Ok(hasher.result_str())
+//     }
 
-    fn hash_block(&self, block: &[u8]) -> String {
-        let mut hasher = Sha256::new();
+//     fn hash_block(&self, block: &[u8]) -> Vec<u8> {
+//         let mut hasher = Sha256::new();
         
-        hasher.input(block);
-        hasher.result_str()
-    }
-}
+//         hasher.input(block);
+//         hasher.result_str()
+//     }
+// }
 
-// Returns the SHA256 hash of a file in hex encoding
-pub fn hash_file(path: &Path) -> io::Result<String> {
+// Returns the SHA256 hash of a file
+pub fn hash_file(path: &Path) -> io::Result<Vec<u8>> {
     let mut chunks = try!(file_chunks(path, 1024));
     let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 32];
     
     while let Some(slice) = chunks.next() {
         let unwrapped_slice = try!(slice);
@@ -158,19 +159,25 @@ pub fn hash_file(path: &Path) -> io::Result<String> {
         hasher.input(unwrapped_slice);
     }
     
-    Ok(hasher.result_str())
+    hasher.result(&mut buffer);
+    Ok(buffer)
 }
 
-// Returns the SHA256 hash of a slice of bytes in hex encoding
-pub fn hash_block(block: &[u8]) -> String {
+// Returns the SHA256 hash of a slice of bytes
+pub fn hash_block(block: &[u8]) -> Vec<u8> {
     let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 32];
     
     hasher.input(block);
-    hasher.result_str()
+    hasher.result(&mut buffer);
+
+    buffer
 }
 
 #[cfg(test)]
 mod test {
+    use super::super::rustc_serialize::hex::ToHex;
+
     use super::super::rand::{Rng, OsRng};
     use super::super::tempdir::TempDir;
     use super::{CryptoScheme, AesEncrypter};
@@ -228,7 +235,7 @@ mod test {
         let expected_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
         let hash = super::hash_file(&file_path).unwrap();
 
-        assert_eq!(expected_hash, &hash[..]);
+        assert_eq!(expected_hash, hash.to_hex());
 
         let _ = file.write_all("test".as_bytes()).unwrap();
         let _ = file.sync_all().unwrap();
@@ -236,7 +243,7 @@ mod test {
         let new_expected_hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
         let new_hash = super::hash_file(&file_path).unwrap();
 
-        assert_eq!(new_expected_hash, &new_hash[..]);
+        assert_eq!(new_expected_hash, new_hash.to_hex());
 
         let non_existant_path = temp_dir.path().join("no-exist");
 
@@ -246,7 +253,7 @@ mod test {
     #[test]
     fn hash_block() {
         let expected_hash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-        let hash = super::hash_block("test".as_bytes());
+        let hash = super::hash_block("test".as_bytes()).to_hex();
 
         assert_eq!(expected_hash, &hash[..]);
     }
