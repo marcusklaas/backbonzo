@@ -1,6 +1,6 @@
 [package]
 name = "backbonzo"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["Marcus Klaas <mail@marcusklaas.nl>"]
 description = "Safe and convenient backup manager"
 repository = "https://github.com/marcusklaas/backbonzo"
