@@ -8,7 +8,7 @@ use super::time;
 
 fn format_bytes(bytes: u64) -> String {
     match decimal_prefix(bytes as f64) {
-        Standalone(bytes)   => format!("{} bytes", bytes),
+        Standalone(bytes) => format!("{} bytes", bytes),
         Prefixed(prefix, n) => format!("{:.0} {}B", n, prefix),
     }
 }
@@ -45,20 +45,15 @@ impl fmt::Display for CleanupSummary {
 
 #[derive(Debug)]
 pub struct Summary {
-    pub bytes:  u64,
+    pub bytes: u64,
     pub blocks: u64,
-    pub files:  u64,
-    pub start:  u64,
+    pub files: u64,
+    pub start: u64,
 }
 
 impl Summary {
     pub fn new() -> Summary {
-        Summary {
-            bytes:  0,
-            blocks: 0,
-            files:  0,
-            start:  time::get_time().sec as u64
-        }
+        Summary { bytes: 0, blocks: 0, files: 0, start: time::get_time().sec as u64 }
     }
 
     pub fn add_block(&mut self, block: &[u8]) {
@@ -72,7 +67,7 @@ impl Summary {
 
     pub fn duration(&self) -> Duration {
         let now = time::get_time().sec as u64;
-        let seconds_passed = now - self.start; 
+        let seconds_passed = now - self.start;
 
         Duration::from_secs(seconds_passed)
     }
@@ -121,17 +116,12 @@ pub struct BackupSummary {
     pub summary: Summary,
     pub cleanup: Option<CleanupSummary>,
     pub source_bytes: u64,
-    pub timeout: bool
+    pub timeout: bool,
 }
 
 impl BackupSummary {
     pub fn new() -> BackupSummary {
-        BackupSummary {
-            summary: Summary::new(),
-            cleanup: None,
-            source_bytes: 0,
-            timeout: false
-        }
+        BackupSummary { summary: Summary::new(), cleanup: None, source_bytes: 0, timeout: false }
     }
 
     pub fn add_block(&mut self, block: &[u8], source_bytes: u64) {
@@ -196,7 +186,8 @@ mod test {
 
         summary.add_file();
 
-        assert!(summary.to_string().starts_with("Restored 519 bytes to 1 files, from 3 blocks in "));
+        assert!(summary.to_string()
+                       .starts_with("Restored 519 bytes to 1 files, from 3 blocks in "));
     }
 
     #[test]
@@ -212,7 +203,9 @@ mod test {
 
         let representation = summary.to_string();
 
-        let re = ::regex::Regex::new(r"Backed up 2 files, into 1 blocks containing 10 bytes, in \d+ seconds").unwrap();
+        let re = ::regex::Regex::new("Backed up 2 files, into 1 blocks \
+                                      containing 10 bytes, in \\d+ seconds")
+                     .unwrap();
 
         assert!(re.is_match(&representation));
 

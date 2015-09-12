@@ -2,14 +2,15 @@ extern crate crypto as rust_crypto;
 
 use self::rust_crypto::aes::{cbc_decryptor, cbc_encryptor, KeySize};
 use self::rust_crypto::digest::Digest;
-use self::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer, BufferResult};
+use self::rust_crypto::buffer::{RefReadBuffer, RefWriteBuffer, WriteBuffer, ReadBuffer,
+                                BufferResult};
 use self::rust_crypto::blockmodes::PkcsPadding;
 use self::rust_crypto::sha2::Sha256;
 use self::rust_crypto::pbkdf2::pbkdf2;
 use self::rust_crypto::hmac::Hmac;
 use self::rust_crypto::symmetriccipher::SymmetricCipherError;
 
-use ::file_chunks::file_chunks;
+use file_chunks::file_chunks;
 use std::path::Path;
 use std::io;
 use std::fmt;
@@ -53,14 +54,12 @@ pub trait CryptoScheme: Send + Sync + Copy + 'static {
 
 #[derive(Copy, Clone)]
 pub struct AesEncrypter {
-    key: [u8; 32]
+    key: [u8; 32],
 }
 
 impl AesEncrypter {
     pub fn new(password: &str) -> AesEncrypter {
-        let mut scheme = AesEncrypter {
-            key: [0; 32]
-        };
+        let mut scheme = AesEncrypter { key: [0; 32] };
 
         let salt = [0; 16];
         let mut mac = Hmac::new(Sha256::new(), password.as_bytes());
@@ -77,7 +76,7 @@ unsafe impl Sync for AesEncrypter {}
 impl CryptoScheme for AesEncrypter {
     fn hash_password(&self) -> String {
         let mut hasher = Sha256::new();
-    
+
         hasher.input(&self.key);
         hasher.result_str()
     }
@@ -129,19 +128,19 @@ pub trait HashScheme {
 //     fn hash_file(&self, path: &Path) -> io::Result<Vec<u8>> {
 //         let mut chunks = try!(file_chunks(path, 1024));
 //         let mut hasher = Sha256::new();
-        
+
 //         while let Some(slice) = chunks.next() {
 //             let unwrapped_slice = try!(slice);
-            
+
 //             hasher.input(unwrapped_slice);
 //         }
-        
+
 //         Ok(hasher.result_str())
 //     }
 
 //     fn hash_block(&self, block: &[u8]) -> Vec<u8> {
 //         let mut hasher = Sha256::new();
-        
+
 //         hasher.input(block);
 //         hasher.result_str()
 //     }
@@ -152,13 +151,13 @@ pub fn hash_file(path: &Path) -> io::Result<Vec<u8>> {
     let mut chunks = try!(file_chunks(path, 1024));
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; 32];
-    
+
     while let Some(slice) = chunks.next() {
         let unwrapped_slice = try!(slice);
-        
+
         hasher.input(unwrapped_slice);
     }
-    
+
     hasher.result(&mut buffer);
     Ok(buffer)
 }
@@ -167,7 +166,7 @@ pub fn hash_file(path: &Path) -> io::Result<Vec<u8>> {
 pub fn hash_block(block: &[u8]) -> Vec<u8> {
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; 32];
-    
+
     hasher.input(block);
     hasher.result(&mut buffer);
 
@@ -181,10 +180,10 @@ mod test {
     use super::super::rand::{Rng, OsRng};
     use super::super::tempdir::TempDir;
     use super::{CryptoScheme, AesEncrypter};
-    
+
     use std::fs::File;
     use std::io::Write;
-    
+
     #[test]
     fn aes_encryption_decryption() {
         let mut data: [u8; 100000] = [0; 100000];
@@ -210,7 +209,7 @@ mod test {
         let bad_scheme = AesEncrypter::new("hallo");
 
         let encrypted_data = scheme.encrypt_block(message).ok().unwrap();
-        
+
         let bad_decrypt = bad_scheme.decrypt_block(&encrypted_data);
         let good_decrypt = scheme.decrypt_block(&encrypted_data);
 
