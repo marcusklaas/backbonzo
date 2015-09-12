@@ -1,5 +1,3 @@
-extern crate filetime;
-
 use std::io;
 use std::path::{PathBuf, Path};
 use std::fs::{read_dir, PathExt};
@@ -7,13 +5,13 @@ use std::borrow::ToOwned;
 use std::cmp::Ordering;
 use std::mem;
 
-use super::super::comm::spmc::bounded_fast as spmc;
-use self::filetime::FileTime;
-use super::super::iter_reduce::{Reduce, IteratorReduce};
+use ::comm::spmc::bounded_fast as spmc;
+use ::filetime::FileTime;
+use ::iter_reduce::{Reduce, IteratorReduce};
 
-use super::super::database::Database;
-use super::super::Directory;
-use super::super::error::{BonzoResult, BonzoError};
+use ::database::Database;
+use ::Directory;
+use ::error::{BonzoResult, BonzoError};
 
 pub struct FileInfo {
     pub path: PathBuf,

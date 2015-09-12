@@ -99,7 +99,7 @@ impl RestorationSummary {
 
 impl fmt::Display for RestorationSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let seconds_passed = self.0.duration().secs();
+        let seconds_passed = self.0.duration().as_secs();
         let byte_desc = format_bytes(self.0.bytes);
 
         write!(
@@ -150,7 +150,7 @@ impl BackupSummary {
 
 impl fmt::Display for BackupSummary {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let seconds_passed = self.summary.duration().secs();
+        let seconds_passed = self.summary.duration().as_secs();
         let compression_ratio = (self.summary.bytes as f64) / (self.source_bytes as f64);
         let byte_desc = format_bytes(self.summary.bytes);
 

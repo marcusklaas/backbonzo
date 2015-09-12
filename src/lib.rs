@@ -1,4 +1,4 @@
-#![feature(libc, path_ext, plugin, duration, into_cow, vec_push_all, fs_time)]
+#![feature(libc, path_ext, into_cow)]
 
 extern crate rustc_serialize;
 extern crate time;
@@ -8,12 +8,13 @@ extern crate comm;
 extern crate iter_reduce;
 extern crate rand;
 extern crate tempdir;
+extern crate filetime;
 
 #[cfg(test)]
 extern crate regex;
 
 use std::io::{self, Read, Write, BufReader};
-use std::fs::{remove_file, copy, File, create_dir_all, set_file_times, metadata, PathExt};
+use std::fs::{remove_file, copy, File, create_dir_all, metadata, PathExt};
 use std::path::{PathBuf, Path};
 use std::env::current_dir;
 use std::convert::{From, AsRef};
@@ -25,6 +26,7 @@ use glob::Pattern;
 use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
 use rustc_serialize::hex::ToHex;
+use filetime::set_file_times;
 
 use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
@@ -423,7 +425,7 @@ fn write_to_disk(path: &Path, bytes: &[u8]) -> io::Result<()> {
     try!(file.write_all(bytes));
     try!(file.sync_all());
 
-    set_file_times(path, 0, 0)
+    set_file_times(path, filetime::FileTime::zero(), filetime::FileTime::zero())
 }
 
 #[cfg(test)]
