@@ -5,7 +5,7 @@ extern crate time;
 extern crate tempdir;
 
 use backbonzo::{AesEncrypter, BonzoError};
-use std::io::{Read, Write, self};
+use std::io::{self, Read, Write};
 use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions, read_dir};
 use time::{Duration, get_time};
 use tempdir::TempDir;
@@ -31,11 +31,7 @@ fn cleanup_regression_test() {
     let crypto_scheme = AesEncrypter::new("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
-    let init_result = backbonzo::init(
-        &source_path,
-        &destination_path,
-        &crypto_scheme
-    );
+    let init_result = backbonzo::init(&source_path, &destination_path, &crypto_scheme);
 
     assert!(init_result.is_ok());
 
@@ -48,13 +44,9 @@ fn cleanup_regression_test() {
     }
 
     // run backup of file
-    backbonzo::backup(
-        source_path.clone(),
-        1000000,
-        &crypto_scheme,
-        0,
-        deadline
-    ).ok().expect("First backup failed");
+    backbonzo::backup(source_path.clone(), 1000000, &crypto_scheme, 0, deadline)
+        .ok()
+        .expect("First backup failed");
 
     // save timestamp
     sleep_ms(3000);
@@ -80,13 +72,8 @@ fn cleanup_regression_test() {
     assert!(deletion_counter >= 1);
 
     // rerun backup with very strict max_age parameter
-    let summary = backbonzo::backup(
-        source_path.clone(),
-        1000000,
-        &crypto_scheme,
-        1,
-        deadline
-    ).unwrap();
+    let summary = backbonzo::backup(source_path.clone(), 1000000, &crypto_scheme, 1, deadline)
+                      .unwrap();
 
     let cleanup_summary = &summary.cleanup.unwrap();
 
@@ -105,11 +92,7 @@ fn cleanup() {
     let crypto_scheme = AesEncrypter::new("testpassword");
     let deadline = time::now() + Duration::minutes(1);
 
-    let init_result = backbonzo::init(
-        &source_path,
-        &destination_path,
-        &crypto_scheme
-    );
+    let init_result = backbonzo::init(&source_path, &destination_path, &crypto_scheme);
 
     assert!(init_result.is_ok());
 
@@ -122,13 +105,9 @@ fn cleanup() {
     }
 
     // run backup of file
-    backbonzo::backup(
-        source_path.clone(),
-        1000000,
-        &crypto_scheme,
-        0,
-        deadline
-    ).ok().expect("First backup failed");
+    backbonzo::backup(source_path.clone(), 1000000, &crypto_scheme, 0, deadline)
+        .ok()
+        .expect("First backup failed");
 
     // save timestamp
     let timestamp = epoch_milliseconds();
@@ -138,22 +117,18 @@ fn cleanup() {
     remove_file(&file_path).ok().expect("Couldn't remove file");
     assert!(file_path.exists() == false);
 
-    backbonzo::backup(
-        source_path.clone(),
-        1000000,
-        &crypto_scheme,
-        60 * 1000,
-        deadline
-    ).ok().expect("Second backup failed");
+    backbonzo::backup(source_path.clone(), 1000000, &crypto_scheme, 60 * 1000, deadline)
+        .ok()
+        .expect("Second backup failed");
 
     // run restore and check that our file is restored
-    backbonzo::restore(
-        source_path.clone(),
-        destination_path.clone(),
-        &crypto_scheme,
-        timestamp,
-        "**".to_owned()
-    ).ok().expect("First restore failed");
+    backbonzo::restore(source_path.clone(),
+                       destination_path.clone(),
+                       &crypto_scheme,
+                       timestamp,
+                       "**".to_owned())
+        .ok()
+        .expect("First restore failed");
 
     assert!(file_path.exists());
 
@@ -162,22 +137,18 @@ fn cleanup() {
     assert!(file_path.exists() == false);
 
     // run backup with very strict max_age parameter
-    backbonzo::backup(
-        source_path.clone(),
-        1000000,
-        &crypto_scheme,
-        1,
-        deadline
-    ).ok().expect("Third backup failed");
+    backbonzo::backup(source_path.clone(), 1000000, &crypto_scheme, 1, deadline)
+        .ok()
+        .expect("Third backup failed");
 
     // again run restore and make sure that we cleaned up our file
-    backbonzo::restore(
-        source_path.clone(),
-        destination_path.clone(),
-        &crypto_scheme,
-        timestamp,
-        "**".to_owned()
-    ).ok().expect("Second restore failed");
+    backbonzo::restore(source_path.clone(),
+                       destination_path.clone(),
+                       &crypto_scheme,
+                       timestamp,
+                       "**".to_owned())
+        .ok()
+        .expect("Second restore failed");
 
     assert!(file_path.exists() == false);
 }
@@ -186,26 +157,18 @@ fn cleanup() {
 fn init() {
     let source_dir = TempDir::new("init").unwrap();
     let backup_dir = TempDir::new("init-backup").unwrap();
-    
+
     let crypto_scheme = AesEncrypter::new("testpassword");
 
-    let result = backbonzo::init(
-        &source_dir.path(),
-        &backup_dir.path(),
-        &crypto_scheme
-    );
+    let result = backbonzo::init(&source_dir.path(), &backup_dir.path(), &crypto_scheme);
 
     assert!(result.is_ok());
 
-    let second_result = backbonzo::init(
-        &source_dir.path(),
-        &backup_dir.path(),
-        &crypto_scheme
-    );
+    let second_result = backbonzo::init(&source_dir.path(), &backup_dir.path(), &crypto_scheme);
 
     let is_expected = match second_result {
         Err(BonzoError::Other(ref str)) => &str[..] == "Database file already exists",
-        _                               => false
+        _ => false,
     };
 
     assert!(is_expected);
@@ -226,17 +189,15 @@ fn backup_wrong_password() {
         ).is_ok()
     );
 
-    let backup_result = backbonzo::backup(
-        source_path,
-        1000000,
-        &AesEncrypter::new("differentpassword"),
-        0,
-        deadline
-    );
+    let backup_result = backbonzo::backup(source_path,
+                                          1000000,
+                                          &AesEncrypter::new("differentpassword"),
+                                          0,
+                                          deadline);
 
     let is_expected = match backup_result {
         Err(BonzoError::Other(ref str)) => &str[..] == "Password is not the same as in database",
-        _                               => false
+        _ => false,
     };
 
     assert!(is_expected);
@@ -248,15 +209,14 @@ fn backup_no_init() {
     let source_path = dir.path().to_owned();
     let deadline = time::now();
 
-    let backup_result = backbonzo::backup(
-        source_path,
-        1000000,
-        &AesEncrypter::new("differentpassword"),
-        0,
-        deadline
-    );
+    let backup_result = backbonzo::backup(source_path,
+                                          1000000,
+                                          &AesEncrypter::new("differentpassword"),
+                                          0,
+                                          deadline);
 
-    assert_eq!(&format!("{}", backup_result.unwrap_err())[..], "Database error: unable to open database file");
+    assert_eq!(&format!("{}", backup_result.unwrap_err())[..],
+               "Database error: unable to open database file");
 }
 
 #[test]
@@ -296,13 +256,11 @@ fn backup_and_restore() {
         ).is_ok()
     );
 
-    let backup_result = backbonzo::backup(
-        source_path.clone(),
-        1000000,
-        &crypto_scheme,
-        0,
-        deadline
-    );
+    let backup_result = backbonzo::backup(source_path.clone(),
+                                          1000000,
+                                          &crypto_scheme,
+                                          0,
+                                          deadline);
 
     assert!(backup_result.is_ok());
 
@@ -310,13 +268,11 @@ fn backup_and_restore() {
     let restore_temp = TempDir::new("restore").unwrap();
     let restore_path = restore_temp.path().to_owned();
 
-    let restore_result = backbonzo::restore(
-        restore_path.clone(),
-        destination_path.clone(),
-        &crypto_scheme,
-        timestamp,
-        "**/welco*"
-    );
+    let restore_result = backbonzo::restore(restore_path.clone(),
+                                            destination_path.clone(),
+                                            &crypto_scheme,
+                                            timestamp,
+                                            "**/welco*");
 
     assert!(restore_result.is_ok());
 
@@ -327,7 +283,7 @@ fn backup_and_restore() {
     let mut restored_file = File::open(&restored_file_path).unwrap();
     let mut buffer = Vec::new();
     restored_file.read_to_end(&mut buffer).unwrap();
-    
+
     assert_eq!(&bytes[..], &buffer[..]);
 
     assert!(!restore_path.join("smth_diffrent.jpg").exists());
@@ -337,7 +293,7 @@ fn backup_and_restore() {
 
 fn epoch_milliseconds() -> u64 {
     let stamp = get_time();
-        
+
     stamp.nsec as u64 / 1000 / 1000 + stamp.sec as u64 * 1000
 }
 
@@ -360,13 +316,13 @@ fn renames() {
     );
 
     let first_file_name = "first";
-    let first_message   = b"first message. ";
+    let first_message = b"first message. ";
 
     let second_file_name = "second";
-    let second_message   = b"second";
+    let second_message = b"second";
 
     let mixed_message = b"secondmessage. ";
-    
+
     // create 1 file in source map
     let first_timestamp = {
         let file_path = source_path.join(first_file_name);
@@ -374,13 +330,11 @@ fn renames() {
         file.write_all(first_message).unwrap();
         file.sync_all().unwrap();
 
-        let backup_result = backbonzo::backup(
-            source_path.clone(),
-            1000000,
-            &crypto_scheme,
-            max_age_milliseconds,
-            deadline
-        );
+        let backup_result = backbonzo::backup(source_path.clone(),
+                                              1000000,
+                                              &crypto_scheme,
+                                              max_age_milliseconds,
+                                              deadline);
 
         assert!(backup_result.is_ok());
 
@@ -399,14 +353,12 @@ fn renames() {
         let mut file = open_read_write(&file_path).unwrap();
         file.write_all(second_message).unwrap();
         file.sync_all().unwrap();
-        
-        let backup_result = backbonzo::backup(
-            source_path.clone(),
-            1000000,
-            &crypto_scheme,
-            max_age_milliseconds,
-            deadline
-        );
+
+        let backup_result = backbonzo::backup(source_path.clone(),
+                                              1000000,
+                                              &crypto_scheme,
+                                              max_age_milliseconds,
+                                              deadline);
 
         assert!(backup_result.is_ok());
 
@@ -421,14 +373,12 @@ fn renames() {
         let second_path = source_path.join(second_file_name);
 
         rename(&second_path, &first_path).unwrap();
-        
-        let backup_result = backbonzo::backup(
-            source_path.clone(),
-            1000000,
-            &crypto_scheme,
-            max_age_milliseconds,
-            deadline
-        );
+
+        let backup_result = backbonzo::backup(source_path.clone(),
+                                              1000000,
+                                              &crypto_scheme,
+                                              max_age_milliseconds,
+                                              deadline);
 
         assert!(backup_result.is_ok());
 
@@ -443,13 +393,11 @@ fn renames() {
 
         remove_file(&first_path).unwrap();
 
-        let backup_result = backbonzo::backup(
-            source_path.clone(),
-            1000000,
-            &crypto_scheme,
-            max_age_milliseconds,
-            deadline
-        );
+        let backup_result = backbonzo::backup(source_path.clone(),
+                                              1000000,
+                                              &crypto_scheme,
+                                              max_age_milliseconds,
+                                              deadline);
 
         assert!(backup_result.is_ok());
     }
@@ -459,13 +407,11 @@ fn renames() {
         let restore_temp = TempDir::new("rename-store").unwrap();
         let restore_path = restore_temp.path().to_owned();
 
-        let restore_result = backbonzo::restore(
-            restore_path.clone(),
-            destination_path.clone(),
-            &crypto_scheme,
-            second_timestamp + 1,
-            "**"
-        );
+        let restore_result = backbonzo::restore(restore_path.clone(),
+                                                destination_path.clone(),
+                                                &crypto_scheme,
+                                                second_timestamp + 1,
+                                                "**");
 
         assert!(restore_result.is_ok());
 
@@ -487,13 +433,11 @@ fn renames() {
         let restore_temp = TempDir::new("rename-store").unwrap();
         let restore_path = restore_temp.path().to_owned();
 
-        let restore_result = backbonzo::restore(
-            restore_path.clone(),
-            destination_path.clone(),
-            &crypto_scheme,
-            third_timestamp + 1,
-            "**"
-        );
+        let restore_result = backbonzo::restore(restore_path.clone(),
+                                                destination_path.clone(),
+                                                &crypto_scheme,
+                                                third_timestamp + 1,
+                                                "**");
 
         assert!(restore_result.is_ok());
 
@@ -515,13 +459,11 @@ fn renames() {
         let restore_temp = TempDir::new("rename-store").unwrap();
         let restore_path = restore_temp.path().to_owned();
 
-        let restore_result = backbonzo::restore(
-            restore_path.clone(),
-            destination_path.clone(),
-            &crypto_scheme,
-            epoch_milliseconds(),
-            "**"
-        );
+        let restore_result = backbonzo::restore(restore_path.clone(),
+                                                destination_path.clone(),
+                                                &crypto_scheme,
+                                                epoch_milliseconds(),
+                                                "**");
 
         assert!(restore_result.is_ok());
 
@@ -537,13 +479,11 @@ fn renames() {
         let restore_temp = TempDir::new("rename-store").unwrap();
         let restore_path = restore_temp.path().to_owned();
 
-        let restore_result = backbonzo::restore(
-            restore_path.clone(),
-            destination_path.clone(),
-            &crypto_scheme,
-            first_timestamp + 1,
-            "**"
-        );
+        let restore_result = backbonzo::restore(restore_path.clone(),
+                                                destination_path.clone(),
+                                                &crypto_scheme,
+                                                first_timestamp + 1,
+                                                "**");
 
         assert!(restore_result.is_ok());
 
@@ -565,13 +505,11 @@ fn renames() {
         let restore_temp = TempDir::new("rename-store").unwrap();
         let restore_path = restore_temp.path().to_owned();
 
-        let restore_result = backbonzo::restore(
-            restore_path.clone(),
-            destination_path.clone(),
-            &crypto_scheme,
-            5000,
-            "**"
-        );
+        let restore_result = backbonzo::restore(restore_path.clone(),
+                                                destination_path.clone(),
+                                                &crypto_scheme,
+                                                5000,
+                                                "**");
 
         assert!(restore_result.is_ok());
 

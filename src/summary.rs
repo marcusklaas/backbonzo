@@ -203,8 +203,8 @@ mod test {
 
         let representation = summary.to_string();
 
-        let re = ::regex::Regex::new(r"Backed up 2 files, into 1 blocks\
-                                       containing 10 bytes, in \d+ seconds")
+        let re = ::regex::Regex::new("Backed up 2 files, into 1 blocks \
+                                      containing 10 bytes, in \\d+ seconds")
                      .unwrap();
 
         assert!(re.is_match(&representation));
