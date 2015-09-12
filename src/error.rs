@@ -11,7 +11,7 @@ pub enum BonzoError {
     Database(DatabaseError),
     Io(io::Error, Option<PathBuf>),
     Crypto(CryptoError),
-    Other(String)
+    Other(String),
 }
 
 impl BonzoError {
@@ -25,14 +25,14 @@ impl Error for BonzoError {
     fn description(&self) -> &str {
         match self {
             &BonzoError::Database(ref e) => e.description(),
-            _                            => ""
+            _ => "",
         }
     }
 
     fn cause(&self) -> Option<&Error> {
         match self {
             &BonzoError::Database(ref e) => Some(e),
-            _                            => None
+            _ => None,
         }
     }
 }
@@ -58,15 +58,15 @@ impl From<DatabaseError> for BonzoError {
 impl fmt::Debug for BonzoError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            BonzoError::Database(ref e)     => write!(f, "Database error: {}", e),
+            BonzoError::Database(ref e) => write!(f, "Database error: {}", e),
             BonzoError::Io(ref e, ref path) => write!(f,
                                                       "IO error ({:?}) ({:?}): {}, {}",
                                                       path,
                                                       e.kind(),
                                                       <io::Error as Error>::description(e),
                                                       e.to_string()),
-            BonzoError::Crypto(ref e)       => write!(f, "Crypto error: {}", e),
-            BonzoError::Other(ref str)      => write!(f, "Error: {}", str)
+            BonzoError::Crypto(ref e) => write!(f, "Crypto error: {}", e),
+            BonzoError::Other(ref str) => write!(f, "Error: {}", str),
         }
     }
 }

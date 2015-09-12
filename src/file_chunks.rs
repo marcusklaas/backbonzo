@@ -6,22 +6,19 @@ use std::path::Path;
 // Iterator because we only keep one block in memory at a time.
 pub struct Chunks<R> {
     file: R,
-    buffer: Vec<u8>
+    buffer: Vec<u8>,
 }
 
 impl<R: Read> Chunks<R> {
     pub fn new(reader: R, chunk_size: usize) -> Chunks<R> {
-        Chunks {
-            file: reader,
-            buffer: vec![0; chunk_size]
-        }
+        Chunks { file: reader, buffer: vec![0; chunk_size] }
     }
-    
+
     pub fn next(&mut self) -> Option<io::Result<&[u8]>> {
         match self.file.read(&mut self.buffer[..]) {
-            Ok(0)     => None,
+            Ok(0) => None,
             Ok(bytes) => Some(Ok(&self.buffer[0..bytes])),
-            Err(e)    => Some(Err(e))
+            Err(e) => Some(Err(e)),
         }
     }
 }
@@ -44,7 +41,7 @@ mod test {
     use std::fs::File;
 
     use super::super::tempdir::TempDir;
-    
+
     #[test]
     fn file_chunks() {
         let temp_dir = TempDir::new("chunks").unwrap();
@@ -57,7 +54,7 @@ mod test {
 
         assert_eq!([0, 1], chunks.next().unwrap().unwrap());
         assert_eq!([2, 3], chunks.next().unwrap().unwrap());
-        assert_eq!([4], chunks.next().unwrap().unwrap());        
+        assert_eq!([4], chunks.next().unwrap().unwrap());
         assert!(chunks.next().is_none());
     }
 
