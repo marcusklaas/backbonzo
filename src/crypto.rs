@@ -9,7 +9,7 @@ use self::rust_crypto::pbkdf2::pbkdf2;
 use self::rust_crypto::hmac::Hmac;
 use self::rust_crypto::symmetriccipher::SymmetricCipherError;
 
-use super::file_chunks::file_chunks;
+use ::file_chunks::file_chunks;
 use std::path::Path;
 use std::io;
 use std::fmt;
@@ -92,7 +92,7 @@ impl CryptoScheme for AesEncrypter {
 
         do_while_match!({
             let result = try!(encryptor.encrypt(&mut read_buffer, &mut write_buffer, true));
-            final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+            final_result.extend(write_buffer.take_read_buffer().take_remaining());
             result
         }, BufferResult::BufferOverflow);
 
@@ -109,7 +109,7 @@ impl CryptoScheme for AesEncrypter {
 
         do_while_match!({
             let result = try!(decryptor.decrypt(&mut read_buffer, &mut write_buffer, true));
-            final_result.push_all(write_buffer.take_read_buffer().take_remaining());
+            final_result.extend(write_buffer.take_read_buffer().take_remaining());
             result
         }, BufferResult::BufferOverflow);
 

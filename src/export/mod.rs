@@ -10,13 +10,13 @@ use bzip2::{Compress};
 use bzip2::reader::BzCompressor;
 
 use Directory;
-use super::error::{BonzoResult, BonzoError};
-use super::database::Database;
-use super::crypto::{self, CryptoScheme};
-use super::file_chunks::file_chunks;
-use super::comm::mpsc::bounded_fast as mpsc;
-use super::comm::spmc::bounded_fast as spmc;
-use super::BlockId;
+use ::error::{BonzoResult, BonzoError};
+use ::database::Database;
+use ::crypto::{self, CryptoScheme};
+use ::file_chunks::file_chunks;
+use ::comm::mpsc::bounded_fast as mpsc;
+use ::comm::spmc::bounded_fast as spmc;
+use ::BlockId;
 
 use self::filesystem_walker::{send_files, FileInfoMessage};
 
@@ -202,8 +202,8 @@ pub fn start_export_thread<C: CryptoScheme + 'static>(database: &Database, crypt
 mod test {
     use std::thread::sleep_ms;
 
-    use super::super::tempdir::TempDir;
-    use super::super::write_to_disk;
+    use ::tempdir::TempDir;
+    use ::write_to_disk;
     
     #[test]
     fn channel_buffer() {
@@ -220,15 +220,15 @@ mod test {
 
         let password = "password123";
         let database_path = temp_dir.path().join(".backbonzo.db3");
-        let crypto_scheme = super::super::crypto::AesEncrypter::new(password);
+        let crypto_scheme = ::crypto::AesEncrypter::new(password);
 
-        super::super::init(
+        ::init(
             &temp_dir.path(),
             &temp_dir.path(),
             &crypto_scheme
         ).unwrap();
 
-        let database = super::super::database::Database::from_file(database_path).unwrap();
+        let database = ::database::Database::from_file(database_path).unwrap();
         let receiver = super::start_export_thread(&database, &crypto_scheme, 10000000, temp_dir.path()).unwrap();
 
         // give the export thread plenty of time to process all files
