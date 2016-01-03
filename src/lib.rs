@@ -1,20 +1,20 @@
-#![feature(libc, path_ext, into_cow)]
+#![feature(libc, into_cow)]
 
 extern crate rustc_serialize;
 extern crate time;
 extern crate bzip2;
 extern crate glob;
 extern crate comm;
-extern crate iter_reduce;
 extern crate rand;
 extern crate tempdir;
 extern crate filetime;
+extern crate itertools;
 
 #[cfg(test)]
 extern crate regex;
 
 use std::io::{self, Read, Write, BufReader};
-use std::fs::{remove_file, copy, File, create_dir_all, metadata, PathExt};
+use std::fs::{remove_file, copy, File, create_dir_all, metadata};
 use std::path::{PathBuf, Path};
 use std::env::current_dir;
 use std::convert::{From, AsRef};
@@ -23,10 +23,10 @@ use std::borrow::IntoCow;
 use tempdir::TempDir;
 use bzip2::reader::BzDecompressor;
 use glob::Pattern;
-use iter_reduce::{Reduce, IteratorReduce};
 use time::get_time;
 use rustc_serialize::hex::ToHex;
 use filetime::set_file_times;
+use itertools::Itertools;
 
 use export::{process_block, FileInstruction, FileBlock, FileComplete, BlockReference};
 use database::Database;
@@ -148,7 +148,7 @@ impl<C: CryptoScheme> BackupManager<C> {
                     self.restore_file(path, &block_list, &mut summary)
                 })
             })
-            .reduce()
+            .fold_results((), |_, _| ())
             .and_then(move |_| Ok(summary))
     }
 
