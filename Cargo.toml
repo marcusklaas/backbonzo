@@ -26,16 +26,11 @@ filetime = "*"
 bzip2 = "*"
 number_prefix = "*"
 num_cpus = "*"
-
-[dependencies.rust-crypto]
-git = "https://github.com/marcusklaas/rust-crypto"
-rev = "f5d219986373708ea8d7433d5ceca5fb64ee6342"
+rust-crypto = "*"
+itertools = "*"
 
 [dependencies.comm]
 git = "https://github.com/mahkoh/comm"
-
-[dependencies.iter-reduce]
-git = "https://github.com/marcusklaas/iter-reduce"
 
 [[bin]]
 name = "backbonzo"

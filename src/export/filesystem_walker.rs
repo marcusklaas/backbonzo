@@ -1,14 +1,14 @@
 use std::io;
 use std::path::{PathBuf, Path};
-use std::fs::{read_dir, PathExt};
+use std::fs::read_dir;
 use std::borrow::ToOwned;
 use std::cmp::Ordering;
 use std::mem;
 
 use comm::spmc::bounded_fast as spmc;
 use filetime::FileTime;
-use iter_reduce::{Reduce, IteratorReduce};
 
+use ::itertools::Itertools;
 use database::Database;
 use Directory;
 use error::{BonzoResult, BonzoError};
@@ -78,7 +78,7 @@ impl<'sender> FilePathExporter<'sender> {
                                  .persist_null_alias(directory, &filename)
                                  .map_err(|e| BonzoError::Database(e))
                          })
-                         .reduce()
+                         .fold_results((), |_, _| ())
     }
 }
 
@@ -206,10 +206,11 @@ pub fn newest_first_walker(dir: &Path,
 
 #[cfg(test)]
 mod test {
-    use std::thread::sleep_ms;
+    use std::thread::sleep;
     use std::io::{self, Write};
     use std::path::Path;
     use std::fs::{File, create_dir_all};
+    use std::time::Duration;
 
     use super::super::super::tempdir::TempDir;
 
@@ -233,28 +234,28 @@ mod test {
             write_to_disk(&file_path, b"test123").unwrap();
         }
 
-        sleep_ms(50);
+        sleep(Duration::from_millis(50));
 
         {
             let file_path = sub_dir.join("firstfile");
             write_to_disk(&file_path, b"yolo").unwrap();
         }
 
-        sleep_ms(50);
+        sleep(Duration::from_millis(50));
 
         {
             let file_path = root_path.join("second");
             write_to_disk(&file_path, b"hello").unwrap();
         }
 
-        sleep_ms(50);
+        sleep(Duration::from_millis(50));
 
         {
             let file_path = root_path.join("third");
             write_to_disk(&file_path, b"waddaa").unwrap();
         }
 
-        sleep_ms(50);
+        sleep(Duration::from_millis(50));
 
         {
             let file_path = sub_dir.join("deadlast");

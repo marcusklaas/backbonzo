@@ -2,10 +2,10 @@ extern crate rusqlite;
 extern crate libc;
 extern crate libsqlite3_sys as libsqlite;
 
-use super::{epoch_milliseconds, Directory};
-use super::error::{BonzoResult, BonzoError};
-use super::iter_reduce::{Reduce, IteratorReduce};
-use super::{BlockId, FileId};
+use ::{epoch_milliseconds, Directory};
+use ::error::{BonzoResult, BonzoError};
+use ::{BlockId, FileId};
+use ::itertools::Itertools;
 
 use self::rusqlite::{SqliteResult, SqliteConnection, SqliteRow, SqliteOpenFlags,
                      SQLITE_OPEN_FULL_MUTEX, SQLITE_OPEN_READ_WRITE, SQLITE_OPEN_CREATE};
@@ -13,7 +13,7 @@ use self::rusqlite::types::{FromSql, ToSql};
 use self::libc::c_int;
 
 use std::io::Read;
-use std::fs::{PathExt, File};
+use std::fs::File;
 use std::path::PathBuf;
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -529,8 +529,7 @@ impl Database {
           );"]
             .iter()
             .map(|&query| self.connection.execute(query, &[]))
-            .reduce()
-            .map(|_| ())
+            .fold_results((), |_, _| ())
             .map_err(From::from)
     }
 }

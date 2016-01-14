@@ -1,18 +1,17 @@
-#![feature(path_ext)]
-
 extern crate backbonzo;
 extern crate time;
 extern crate tempdir;
 
 use backbonzo::{AesEncrypter, BonzoError};
 use std::io::{self, Read, Write};
-use std::fs::{File, PathExt, create_dir_all, rename, remove_file, OpenOptions, read_dir};
-use time::{Duration, get_time};
+use std::fs::{File, create_dir_all, rename, remove_file, OpenOptions, read_dir};
+use time::{Duration as NonStdDuration, get_time};
+use std::time::Duration;
 use tempdir::TempDir;
 use std::convert::AsRef;
 use std::borrow::ToOwned;
 use std::path::Path;
-use std::thread::sleep_ms;
+use std::thread::sleep;
 
 // FIXME: loads of code duplication here. Clean it up!
 
@@ -29,7 +28,7 @@ fn cleanup_regression_test() {
     let source_path = source_temp.path().to_owned();
     let destination_path = destination_temp.path().to_owned();
     let crypto_scheme = AesEncrypter::new("testpassword");
-    let deadline = time::now() + Duration::minutes(1);
+    let deadline = time::now() + NonStdDuration::minutes(1);
 
     let init_result = backbonzo::init(&source_path, &destination_path, &crypto_scheme);
 
@@ -49,7 +48,7 @@ fn cleanup_regression_test() {
         .expect("First backup failed");
 
     // save timestamp
-    sleep_ms(3000);
+    sleep(Duration::from_millis(3000));
 
     // delete file
     remove_file(&file_path).ok().expect("Couldn't remove file");
@@ -90,7 +89,7 @@ fn cleanup() {
     let source_path = source_temp.path().to_owned();
     let destination_path = destination_temp.path().to_owned();
     let crypto_scheme = AesEncrypter::new("testpassword");
-    let deadline = time::now() + Duration::minutes(1);
+    let deadline = time::now() + NonStdDuration::minutes(1);
 
     let init_result = backbonzo::init(&source_path, &destination_path, &crypto_scheme);
 
@@ -111,7 +110,7 @@ fn cleanup() {
 
     // save timestamp
     let timestamp = epoch_milliseconds();
-    sleep_ms(100);
+    sleep(Duration::from_millis(100));
 
     // delete file and re-run backup with forgiving max_age parameter
     remove_file(&file_path).ok().expect("Couldn't remove file");
@@ -227,7 +226,7 @@ fn backup_and_restore() {
     let source_path = source_temp.path().to_owned();
     let destination_path = destination_temp.path().to_owned();
     let crypto_scheme = AesEncrypter::new("testpassword");
-    let deadline = time::now() + Duration::minutes(1);
+    let deadline = time::now() + NonStdDuration::minutes(1);
 
     assert!(create_dir_all(&source_path.join("test")).is_ok());
 
@@ -304,7 +303,7 @@ fn renames() {
     let source_path = source_temp.path().to_owned();
     let destination_path = destination_temp.path().to_owned();
     let crypto_scheme = AesEncrypter::new("helloworld");
-    let deadline = time::now() + Duration::minutes(10);
+    let deadline = time::now() + NonStdDuration::minutes(10);
     let max_age_milliseconds = 60 * 60 * 1000;
 
     assert!(
@@ -341,7 +340,7 @@ fn renames() {
         epoch_milliseconds()
     };
 
-    sleep_ms(100);
+    sleep(Duration::from_millis(100));
 
     // rename file, update modified date and backup again
     let second_timestamp = {
@@ -365,7 +364,7 @@ fn renames() {
         epoch_milliseconds()
     };
 
-    sleep_ms(100);
+    sleep(Duration::from_millis(100));
 
     // rename file to first and update timestamp
     let third_timestamp = {
@@ -385,7 +384,7 @@ fn renames() {
         epoch_milliseconds()
     };
 
-    sleep_ms(100);
+    sleep(Duration::from_millis(100));
 
     // delete file
     {

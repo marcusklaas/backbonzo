@@ -219,7 +219,8 @@ pub fn start_export_thread<C>(database: &Database,
 
 #[cfg(test)]
 mod test {
-    use std::thread::sleep_ms;
+    use std::thread::sleep;
+    use std::time::Duration;
 
     use tempdir::TempDir;
     use write_to_disk;
@@ -251,7 +252,7 @@ mod test {
                            .unwrap();
 
         // give the export thread plenty of time to process all files
-        sleep_ms(200);
+        sleep(Duration::from_millis(200));
 
         // we should receive two messages for each file: one for its block and
         // one for the file completion.
